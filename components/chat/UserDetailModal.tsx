@@ -71,7 +71,6 @@ export default function UserDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="relative w-full max-w-2xl bg-[#0d1117] border border-[#30363d] rounded-xl shadow-2xl overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#30363d] bg-gradient-to-r from-jade/10 to-transparent">
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg`}
@@ -97,7 +96,6 @@ export default function UserDetailModal({
           </button>
         </div>
         
-        {/* Tabs */}
         <div className="flex border-b border-[#30363d]">
           <button
             onClick={() => setActiveTab('profile')}
@@ -131,7 +129,6 @@ export default function UserDetailModal({
           </button>
         </div>
         
-        {/* Content */}
         <div className="p-4 max-h-[500px] overflow-y-auto">
           {activeTab === 'profile' && (
             <div className="space-y-4">
@@ -233,7 +230,6 @@ export default function UserDetailModal({
           
           {activeTab === 'vote' && (
             <div className="space-y-4">
-              {/* Create Proposal */}
               <div className="github-card p-4">
                 <h3 className="text-sm font-semibold text-white mb-3">Create Proposal</h3>
                 <input
@@ -259,7 +255,6 @@ export default function UserDetailModal({
                 </button>
               </div>
               
-              {/* Active Proposals */}
               <div>
                 <h3 className="text-sm font-semibold text-white mb-3">Active Proposals</h3>
                 {[...proposals.values()].filter(p => p.status === 'active').length === 0 ? (

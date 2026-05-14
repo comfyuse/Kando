@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { ChatNetwork, ChatUser } from '@/lib/chat-network';
+import { ChatNetwork as ChatNetworkType, ChatUser } from '@/lib/chat-network';
 
 interface HexagonalChatNetworkProps {
-  network: ChatNetwork;
+  network: ChatNetworkType;
   onUserClick?: (user: ChatUser) => void;
   selectedUserId?: string | null;
   currentUserId?: string | null;
@@ -63,7 +63,6 @@ export default function HexagonalChatNetwork({
         
         const to = axialToPixel(neighbor.q, neighbor.r, cellSize, cx, cy);
         
-        // خطوط با گرادینت برای اتصالات
         const gradient = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
         gradient.addColorStop(0, '#30363d');
         gradient.addColorStop(1, '#2ea88a30');
@@ -162,7 +161,6 @@ export default function HexagonalChatNetwork({
         ctx.lineWidth = 1.5;
         ctx.stroke();
         
-        // حرف اول نام
         ctx.font = `${cellSize * 0.4}px monospace`;
         ctx.fillStyle = '#ffffff';
         ctx.textAlign = 'center';
@@ -241,7 +239,7 @@ export default function HexagonalChatNetwork({
       canvas.style.cursor = 'grab';
     };
     
-    const onWheel = (e: WheelEvent) => {
+    const onWheel = (e: MouseEvent) => {
       e.preventDefault();
     };
 
@@ -249,7 +247,7 @@ export default function HexagonalChatNetwork({
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('wheel', onWheel as EventListener, { passive: false });
     canvas.style.cursor = 'grab';
     
     return () => {
@@ -257,7 +255,7 @@ export default function HexagonalChatNetwork({
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('wheel', onWheel as EventListener);
     };
   }, [render, network, onUserClick, cellSize]);
 
