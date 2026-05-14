@@ -46,11 +46,9 @@ export default function HexagonalChatNetwork({
     const cx = W / 2 + offsetRef.current.x;
     const cy = H / 2 + offsetRef.current.y;
 
-    // پس‌زمینه
     ctx.fillStyle = '#0d1117';
     ctx.fillRect(0, 0, W, H);
 
-    // رسم خطوط اتصال بین همسایه‌ها
     const drawnEdges = new Set<string>();
     for (const [, user] of network.users) {
       const from = axialToPixel(user.q, user.r, cellSize, cx, cy);
@@ -76,7 +74,6 @@ export default function HexagonalChatNetwork({
       }
     }
 
-    // رسم سلول‌ها (کاربران)
     for (const [, user] of network.users) {
       const { x, y } = axialToPixel(user.q, user.r, cellSize, cx, cy);
       const isSelected = selectedUserId === user.id;
@@ -84,7 +81,6 @@ export default function HexagonalChatNetwork({
       const isHovered = hoveredUser?.id === user.id;
       const isQueen = user.layer === 1;
       
-      // هاله برای سلول انتخاب شده
       if (isSelected) {
         ctx.beginPath();
         ctx.arc(x, y, cellSize + 8, 0, Math.PI * 2);
@@ -97,7 +93,6 @@ export default function HexagonalChatNetwork({
         ctx.stroke();
       }
       
-      // هاله برای سلول هاور
       if (isHovered && !isSelected) {
         ctx.beginPath();
         ctx.arc(x, y, cellSize + 5, 0, Math.PI * 2);
@@ -105,7 +100,6 @@ export default function HexagonalChatNetwork({
         ctx.fill();
       }
       
-      // دایره وضعیت آنلاین/آفلاین
       ctx.beginPath();
       ctx.arc(x + cellSize - 10, y - cellSize + 10, 7, 0, Math.PI * 2);
       ctx.fillStyle = user.status === 'online' ? '#3fb950' : user.status === 'away' ? '#f0d68a' : '#8b949e';
@@ -114,7 +108,6 @@ export default function HexagonalChatNetwork({
       ctx.lineWidth = 2;
       ctx.stroke();
       
-      // بدنه سلول شش ضلعی
       ctx.beginPath();
       for (let i = 0; i < 6; i++) {
         const angle = (Math.PI / 180) * (60 * i);
@@ -168,13 +161,11 @@ export default function HexagonalChatNetwork({
         ctx.fillText(user.name.charAt(0), x, y);
       }
       
-      // نمایش لایه
       ctx.font = `${cellSize * 0.22}px monospace`;
       ctx.fillStyle = '#8b949e';
       ctx.textAlign = 'center';
       ctx.fillText(`Layer ${user.layer}`, x, y + cellSize - 5);
       
-      // نمایش نام کاربر (هنگام هاور)
       if (isHovered) {
         ctx.font = `${cellSize * 0.3}px monospace`;
         ctx.fillStyle = '#2ea88a';
@@ -184,7 +175,6 @@ export default function HexagonalChatNetwork({
     }
   }, [network, cellSize, selectedUserId, currentUserId, hoveredUser]);
 
-  // Event handlers
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -239,7 +229,7 @@ export default function HexagonalChatNetwork({
       canvas.style.cursor = 'grab';
     };
     
-    const onWheel = (e: MouseEvent) => {
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
     };
 
@@ -247,7 +237,7 @@ export default function HexagonalChatNetwork({
     canvas.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('wheel', onWheel as EventListener, { passive: false });
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.style.cursor = 'grab';
     
     return () => {
@@ -255,7 +245,7 @@ export default function HexagonalChatNetwork({
       canvas.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      canvas.removeEventListener('wheel', onWheel as EventListener);
+      canvas.removeEventListener('wheel', onWheel);
     };
   }, [render, network, onUserClick, cellSize]);
 

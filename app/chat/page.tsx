@@ -58,7 +58,7 @@ export default function ChatPage() {
   };
 
   const layerNames: Record<number, string> = {
-    1: '👑 Queen\'s Court',
+    1: "👑 Queen's Court",
     2: '🔹 Inner Circle',
     3: '🔸 Middle Ring',
     4: '🌐 Outer Ring',
