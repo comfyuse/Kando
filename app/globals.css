@@ -1,0 +1,228 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+
+  @media (min-width: 768px) {
+    body {
+      font-size: 16px;
+    }
+  }
+}
+
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --border-color: #30363d;
+  --jade: #2ea88a;
+  --jade-hover: #3fb892;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.dark {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --border-color: #30363d;
+}
+
+html.dark body {
+  background-color: #0d1117;
+  color: #c9d1d9;
+}
+
+
+.github-button-primary {
+  @apply px-3 py-1.5 md:px-4 md:py-2 text-xs md:text-sm font-medium rounded-md transition-all duration-200 bg-[#2ea88a] hover:bg-[#3fb892] text-white;
+}
+
+.github-button-secondary {
+  @apply px-3 py-1.5 md:px-4 md:py-2 text-xs md:text-sm font-medium rounded-md transition-all duration-200 border border-[#30363d] hover:border-[#2ea88a] hover:text-[#2ea88a];
+}
+
+
+.github-card {
+  @apply bg-[#161b22] border border-[#30363d] rounded-lg transition-all duration-300;
+}
+
+
+.glass {
+  background: rgba(13, 17, 23, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  border-radius: 0.5rem;
+}
+
+@media (min-width: 768px) {
+  .glass {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+}
+
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+}
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--jade);
+}
+
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+
+input, textarea, select {
+  transition: all 0.2s ease;
+  font-size: 16px; 
+}
+
+@media (max-width: 768px) {
+  input, textarea, select {
+    font-size: 16px;
+  }
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--jade);
+  box-shadow: 0 0 0 2px rgba(46, 168, 138, 0.2);
+}
+
+
+input[type="checkbox"] {
+  accent-color: #2ea88a;
+  width: 1rem;
+  height: 1rem;
+}
+
+@media (min-width: 768px) {
+  input[type="checkbox"] {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+}
+
+
+button, 
+a, 
+[role="button"],
+input[type="submit"],
+input[type="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+@media (min-width: 768px) {
+  button, 
+  a, 
+  [role="button"],
+  input[type="submit"],
+  input[type="button"] {
+    min-height: auto;
+    min-width: auto;
+  }
+
+@media (max-width: 768px) {
+  .github-button-primary,
+  .github-button-secondary {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+  }
+  
+  button, 
+  a, 
+  [role="button"] {
+    min-height: 40px;
+  }
+  .break-words {
+    word-break: break-word;
+  }
+  
+  .stats-grid {
+    gap: 0.5rem;
+  }
+}
+@media (max-width: 480px) {
+  .github-button-primary,
+  .github-button-secondary {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.7rem;
+  }
+  .text-xs {
+    font-size: 0.65rem;
+  }
+}
+}
