@@ -182,7 +182,6 @@ export default function ChatPage() {
       
       <div className="pt-32 flex items-center justify-center min-h-screen">
         <div className="max-w-2xl mx-auto px-4 text-center">
-          {/* Animated Icon */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
@@ -194,7 +193,6 @@ export default function ChatPage() {
             </div>
           </motion.div>
           
-          {/* Badge */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -208,7 +206,6 @@ export default function ChatPage() {
             <span className="text-xs text-jade font-medium">Under Development</span>
           </motion.div>
           
-          {/* Title */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -218,7 +215,6 @@ export default function ChatPage() {
             Decentralized Chat
           </motion.h1>
           
-          {/* Description */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -237,7 +233,6 @@ export default function ChatPage() {
             Features: End-to-end encryption • Peer-to-peer networking • Hexagonal network topology • 3-approval rule
           </motion.p>
           
-          {/* Progress Bar */}
           <motion.div
             initial={{ opacity: 0, width: 0 }}
             animate={{ opacity: 1, width: "100%" }}
@@ -253,7 +248,6 @@ export default function ChatPage() {
             </div>
           </motion.div>
           
-          {/* CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -280,7 +274,6 @@ export default function ChatPage() {
             </Link>
           </motion.div>
           
-          {/* Roadmap Note */}
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

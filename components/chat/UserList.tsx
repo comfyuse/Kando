@@ -10,7 +10,6 @@ interface UserListProps {
 }
 
 export default function UserList({ users, currentUserId, onSelectUser, selectedUserId }: UserListProps) {
-  // گروه‌بندی کاربران بر اساس لایه
   const usersByLayer = {
     layer1: users.filter(u => u.layer === 1 && u.id !== currentUserId),
     layer2: users.filter(u => u.layer === 2 && u.id !== currentUserId),

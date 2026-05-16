@@ -37,7 +37,6 @@ export default function ChatWindow({ currentUser, targetUser, network, onSendMes
     }
   };
 
-  // محاسبه فاصله لایه‌ای بین دو کاربر
   const getLayerDistance = () => {
     const distance = Math.abs(currentUser.layer - targetUser.layer);
     if (distance === 0) return 'Same layer - Direct message';
@@ -48,7 +47,6 @@ export default function ChatWindow({ currentUser, targetUser, network, onSendMes
 
   return (
     <div className="flex flex-col h-full bg-[#161b22] rounded-lg overflow-hidden border border-[#30363d]">
-      {/* Header */}
       <div className="flex items-center gap-3 p-3 border-b border-[#30363d] bg-[#0d1117]">
         <div className="relative">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold`}
@@ -74,7 +72,6 @@ export default function ChatWindow({ currentUser, targetUser, network, onSendMes
         </div>
       </div>
       
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {messages.length === 0 ? (
           <div className="text-center text-[#8b949e] text-sm py-8">
@@ -109,7 +106,6 @@ export default function ChatWindow({ currentUser, targetUser, network, onSendMes
         <div ref={messagesEndRef} />
       </div>
       
-      {/* Input */}
       <div className="p-3 border-t border-[#30363d] bg-[#0d1117]">
         <div className="flex gap-2">
           <textarea

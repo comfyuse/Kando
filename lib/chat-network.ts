@@ -1,4 +1,3 @@
-// lib/chat-network.ts
 
 export interface ChatUser {
   id: string;
@@ -45,14 +44,11 @@ export class ChatNetwork {
     this.generateNetwork();
   }
 
-  // مختصات شش ضلعی برای هر لایه
   private getLayerCoordinates(): { layer: number; q: number; r: number; position: number }[] {
     const coords: { layer: number; q: number; r: number; position: number }[] = [];
     
-    // لایه 1: Queen (مرکز)
     coords.push({ layer: 1, q: 0, r: 0, position: 0 });
     
-    // لایه 2: حلقه اول (6 سلول)
     const ring2 = [
       [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]
     ];
@@ -60,7 +56,6 @@ export class ChatNetwork {
       coords.push({ layer: 2, q, r, position: idx });
     });
     
-    // لایه 3: حلقه دوم (12 سلول)
     const ring3 = [
       [2, -1], [2, -2], [1, -2], [0, -2], [-1, -1], [-2, 0],
       [-2, 1], [-1, 2], [0, 2], [1, 1], [2, 0], [1, -1]
@@ -69,7 +64,6 @@ export class ChatNetwork {
       coords.push({ layer: 3, q, r, position: idx });
     });
     
-    // لایه 4: حلقه سوم (18 سلول)
     const ring4 = [
       [3, -2], [3, -3], [2, -3], [1, -3], [0, -3], [-1, -2],
       [-2, -1], [-3, 0], [-3, 1], [-2, 2], [-1, 3], [0, 3],
@@ -82,7 +76,6 @@ export class ChatNetwork {
     return coords;
   }
 
-  // تولید شبکه با 37 کاربر
   generateNetwork() {
     const coordinates = this.getLayerCoordinates();
     
@@ -135,11 +128,9 @@ export class ChatNetwork {
       this.messages.set(user.id, []);
     });
     
-    // تنظیم کاربر فعلی (Queen)
     this.currentUserId = 'user_0_0';
   }
 
-  // دریافت همسایه‌های یک کاربر
   getNeighbors(userId: string): ChatUser[] {
     const user = this.users.get(userId);
     if (!user) return [];
@@ -160,12 +151,10 @@ export class ChatNetwork {
     return neighbors;
   }
 
-  // دریافت کاربران بر اساس لایه
   getUsersByLayer(layer: number): ChatUser[] {
     return [...this.users.values()].filter(user => user.layer === layer);
   }
 
-  // دریافت کاربران قابل مشاهده (همسایه‌ها + همسایه‌های همسایه)
   getVisibleUsers(userId: string): ChatUser[] {
     const user = this.users.get(userId);
     if (!user) return [];
@@ -174,7 +163,6 @@ export class ChatNetwork {
     const neighbors = this.getNeighbors(userId);
     neighbors.forEach(n => visible.add(n));
     
-    // همسایه‌های همسایه (برای ارتباط غیرمستقیم)
     neighbors.forEach(neighbor => {
       this.getNeighbors(neighbor.id).forEach(n => {
         if (n.id !== userId) visible.add(n);
@@ -184,7 +172,6 @@ export class ChatNetwork {
     return [...visible];
   }
 
-  // دریافت آمار شبکه
   getStats() {
     const users = [...this.users.values()];
     return {
@@ -197,7 +184,6 @@ export class ChatNetwork {
     };
   }
 
-  // ارسال پیام
   sendMessage(fromUserId: string, toUserId: string, content: string): ChatMessage {
     const message: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
@@ -208,7 +194,6 @@ export class ChatNetwork {
       status: 'sent',
     };
     
-    // ذخیره در تاریخچه هر دو کاربر
     const fromMessages = this.messages.get(fromUserId) || [];
     fromMessages.push(message);
     this.messages.set(fromUserId, fromMessages);
@@ -217,18 +202,15 @@ export class ChatNetwork {
     toMessages.push(message);
     this.messages.set(toUserId, toMessages);
     
-    // فراخوانی callback‌ها
     this.messageCallbacks.forEach(cb => cb(message));
     
     return message;
   }
 
-  // ثبت callback برای پیام‌های جدید
   onMessage(callback: (message: ChatMessage) => void) {
     this.messageCallbacks.push(callback);
   }
 
-  // دریافت مکالمات بین دو کاربر
   getConversation(userId1: string, userId2: string): ChatMessage[] {
     const messages = this.messages.get(userId1) || [];
     return messages.filter(m => 
@@ -237,7 +219,6 @@ export class ChatNetwork {
     ).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
-  // ایجاد پیشنهاد جدید
   createProposal(title: string, description: string, createdBy: string): Proposal {
     const proposal: Proposal = {
       id: `prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -253,7 +234,6 @@ export class ChatNetwork {
     return proposal;
   }
 
-  // رای دادن به پیشنهاد
   voteOnProposal(proposalId: string, userId: string, vote: 'for' | 'against') {
     const proposal = this.proposals.get(proposalId);
     if (!proposal || proposal.status !== 'active') return false;
@@ -264,7 +244,6 @@ export class ChatNetwork {
       proposal.votesAgainst.push(userId);
     }
     
-    // بررسی نتیجه (نیاز به 3 رای موافق برای تصویب در لایه‌های بیرونی)
     const user = this.users.get(userId);
     const requiredVotes = user?.layer === 4 ? 5 : user?.layer === 3 ? 4 : 3;
     
@@ -277,7 +256,6 @@ export class ChatNetwork {
     return true;
   }
 
-  // تغییر وضعیت کاربر
   setUserStatus(userId: string, status: ChatUser['status']) {
     const user = this.users.get(userId);
     if (user) {
@@ -286,7 +264,6 @@ export class ChatNetwork {
     }
   }
 
-  // تغییر کاربر فعلی
   setCurrentUser(userId: string) {
     this.currentUserId = userId;
   }

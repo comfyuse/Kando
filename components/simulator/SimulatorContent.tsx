@@ -149,7 +149,12 @@ export default function SimulatorContent() {
         </button>
       )}
       
-      <div className="absolute z-20 pointer-events-auto flex gap-2 md:gap-3 bottom-3 left-1/2 -translate-x-1/2">
+      {/* فقط این بخش تغییر کرده - موقعیت دکمه‌ها */}
+      <div className={`absolute z-20 pointer-events-auto flex gap-2 md:gap-3 ${
+        isMobile 
+          ? 'left-3 top-1/2 -translate-y-1/2 flex-col' 
+          : 'bottom-3 left-1/2 -translate-x-1/2'
+      }`}>
         <button 
           onClick={step} 
           className="px-3 md:px-5 py-1.5 md:py-2 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg"
