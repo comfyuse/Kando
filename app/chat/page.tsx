@@ -23,6 +23,15 @@ interface CurveSelection {
   fromCell: Cell;
   toCell: Cell;
 }
+// Add this export
+export interface ChatUser {
+  id: string;
+  name: string;
+  layer: number;
+  status: 'online' | 'away' | 'offline';
+  avatarColor: string;
+  coord: { q: number; r: number };
+}
 
 // Store user profiles for each cell
 const userProfiles = new Map<string, UserProfile>();

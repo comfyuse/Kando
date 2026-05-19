@@ -1,13 +1,11 @@
-// components/chat/HexagonalChatCanvas.tsx
 'use client';
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { ChatUser } from '@/app/chat/page';
+import { ChatUser } from '@/lib/chat-types';
 
 interface HexagonalChatCanvasProps {
   network: { users: Map<string, ChatUser> };
-  onCellClick?: (user: ChatUser) => void;
-  onCurveClick?: (fromUser: ChatUser, toUser: ChatUser) => void;
+  onUserClick?: (user: ChatUser) => void;
   currentUserId?: string;
   selectedUserId?: string;
   activeLayer: number;
@@ -21,29 +19,21 @@ function axialToPixel(q: number, r: number, size: number, cx: number, cy: number
   };
 }
 
-export default function HexagonalChatCanvas({ 
-  network, 
-  onCellClick, 
-  onCurveClick,
-  selectedUserId,
-  activeLayer,
-  onLayerChange 
-}: HexagonalChatCanvasProps) {
+const HexagonalChatCanvas = forwardRef(function HexagonalChatCanvas(
+  { network, onUserClick, currentUserId, selectedUserId, activeLayer, onLayerChange }: HexagonalChatCanvasProps,
+  ref: any
+) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offsetRef = useRef({ x: 0, y: 0 });
   const dragRef = useRef(false);
   const hasDraggedRef = useRef(false);
   const lastMouseRef = useRef({ x: 0, y: 0 });
-  const [size, setSize] = useState(24);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [size, setSize] = useState(28);
+  const hoveredUserRef = useRef<ChatUser | null>(null);
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !mounted) return;
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -73,7 +63,7 @@ export default function HexagonalChatCanvas({
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
     }
 
-    // Draw connection lines
+    // Draw connection lines between users in same layer
     const users = Array.from(network.users.values()).filter(u => u.layer === activeLayer);
     
     for (let i = 0; i < users.length; i++) {
@@ -101,11 +91,11 @@ export default function HexagonalChatCanvas({
       }
     }
 
-    // Draw cells
+    // Draw users
     for (const user of users) {
       const { x, y } = axialToPixel(user.coord.q, user.coord.r, size, cx, cy);
+      const isCurrent = user.id === currentUserId;
       const isSelected = user.id === selectedUserId;
-      const isQueen = user.coord.q === 0 && user.coord.r === 0;
       
       // Hexagon
       ctx.beginPath();
@@ -117,32 +107,44 @@ export default function HexagonalChatCanvas({
       }
       ctx.closePath();
       
-      // Fill based on layer
+      // Fill based on user layer
       const layerColors: Record<number, { fill: string; stroke: string }> = {
-        0: {
-          fill: isDark ? 'rgba(63, 185, 80, 0.4)' : 'rgba(34, 139, 34, 0.35)',
-          stroke: isDark ? 'rgba(63, 185, 80, 0.8)' : 'rgba(34, 139, 34, 0.7)',
-        },
         1: {
-          fill: isDark ? 'rgba(88, 166, 255, 0.35)' : 'rgba(30, 144, 255, 0.3)',
-          stroke: isDark ? 'rgba(88, 166, 255, 0.7)' : 'rgba(30, 144, 255, 0.6)',
+          fill: isDark ? 'rgba(245, 158, 11, 0.35)' : 'rgba(245, 158, 11, 0.25)',
+          stroke: isDark ? 'rgba(245, 158, 11, 0.7)' : 'rgba(245, 158, 11, 0.6)',
         },
         2: {
-          fill: isDark ? 'rgba(248, 81, 73, 0.3)' : 'rgba(220, 38, 38, 0.25)',
-          stroke: isDark ? 'rgba(248, 81, 73, 0.65)' : 'rgba(220, 38, 38, 0.55)',
+          fill: isDark ? 'rgba(56, 189, 248, 0.35)' : 'rgba(56, 189, 248, 0.25)',
+          stroke: isDark ? 'rgba(56, 189, 248, 0.7)' : 'rgba(56, 189, 248, 0.6)',
+        },
+        3: {
+          fill: isDark ? 'rgba(52, 211, 153, 0.35)' : 'rgba(52, 211, 153, 0.25)',
+          stroke: isDark ? 'rgba(52, 211, 153, 0.7)' : 'rgba(52, 211, 153, 0.6)',
+        },
+        4: {
+          fill: isDark ? 'rgba(167, 139, 250, 0.35)' : 'rgba(167, 139, 250, 0.25)',
+          stroke: isDark ? 'rgba(167, 139, 250, 0.7)' : 'rgba(167, 139, 250, 0.6)',
         },
       };
       
-      const colors = layerColors[user.layer] || layerColors[0];
-      ctx.fillStyle = isQueen ? 'rgba(255, 215, 0, 0.55)' : colors.fill;
+      const colors = layerColors[user.layer];
+      ctx.fillStyle = isCurrent ? 'rgba(212, 168, 67, 0.45)' : colors.fill;
       ctx.fill();
-      ctx.strokeStyle = isQueen ? '#ffd700' : (isSelected ? '#ffd700' : colors.stroke);
-      ctx.lineWidth = isQueen ? 2.5 : (isSelected ? 2 : 1);
+      ctx.strokeStyle = isSelected ? '#ffd700' : colors.stroke;
+      ctx.lineWidth = isSelected ? 3 : (isCurrent ? 2 : 1.5);
       ctx.stroke();
+      
+      if (isCurrent) {
+        ctx.save();
+        ctx.shadowColor = '#ffd700';
+        ctx.shadowBlur = 15;
+        ctx.stroke();
+        ctx.restore();
+      }
       
       // Avatar circle
       ctx.beginPath();
-      ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+      ctx.arc(x, y, size * 0.35, 0, Math.PI * 2);
       ctx.fillStyle = user.avatarColor;
       ctx.fill();
       ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.1)';
@@ -150,19 +152,32 @@ export default function HexagonalChatCanvas({
       ctx.stroke();
       
       // Initial
-      ctx.font = `${Math.max(10, size * 0.25)}px "Segoe UI", Arial, sans-serif`;
+      ctx.font = `${Math.max(12, size * 0.3)}px "Segoe UI", Arial, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#ffffff';
       ctx.fillText(user.name.charAt(0), x, y);
+      
+      // Status indicator
+      ctx.beginPath();
+      ctx.arc(x + size * 0.4, y - size * 0.4, size * 0.1, 0, Math.PI * 2);
+      ctx.fillStyle = user.status === 'online' ? '#3fb950' : (user.status === 'away' ? '#f0d68a' : '#8b949e');
+      ctx.fill();
+      ctx.strokeStyle = isDark ? '#0a0a0f' : '#fafaf9';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      
+      // Name label on hover
+      if (hoveredUserRef.current?.id === user.id) {
+        ctx.font = `11px "Segoe UI", Arial, sans-serif`;
+        ctx.fillStyle = isDark ? '#ffffff' : '#000000';
+        ctx.shadowBlur = 0;
+        ctx.fillText(user.name, x, y - size * 0.7);
+      }
     }
-  }, [network, size, selectedUserId, activeLayer, mounted]);
+  }, [network, size, currentUserId, selectedUserId, activeLayer]);
 
-  useEffect(() => {
-    render();
-  }, [render]);
-
-  // Mouse event handlers
+  // Mouse event handlers for interaction
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -192,6 +207,13 @@ export default function HexagonalChatCanvas({
         offsetRef.current.y += dy;
         lastMouseRef.current = { x: e.clientX, y: e.clientY };
         render();
+      } else {
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+        const user = getUserAtPixel(px, py);
+        hoveredUserRef.current = user || null;
+        render();
       }
     };
 
@@ -202,13 +224,13 @@ export default function HexagonalChatCanvas({
     };
 
     const onMouseUp = (e: MouseEvent) => {
-      if (!hasDraggedRef.current && onCellClick) {
+      if (!hasDraggedRef.current && onUserClick) {
         const rect = canvas.getBoundingClientRect();
         const px = e.clientX - rect.left;
         const py = e.clientY - rect.top;
         const user = getUserAtPixel(px, py);
-        if (user) {
-          onCellClick(user);
+        if (user && user.id !== currentUserId) {
+          onUserClick(user);
         }
       }
       dragRef.current = false;
@@ -230,35 +252,35 @@ export default function HexagonalChatCanvas({
       window.removeEventListener('mouseup', onMouseUp);
       canvas.removeEventListener('wheel', onWheel);
     };
-  }, [render, size, network, onCellClick, activeLayer]);
+  }, [render, size, network, onUserClick, currentUserId, activeLayer]);
 
   // Layer selector buttons
   const layerButtons = [
-    { layer: 0, label: 'Ring 0', color: 'emerald' },
-    { layer: 1, label: 'Ring 1', color: 'sky' },
-    { layer: 2, label: 'Ring 2', color: 'red' },
-    { layer: 3, label: 'Ring 3', color: 'purple' },
+    { layer: 1, label: '👑 Queen\'s Court', color: 'amber' },
+    { layer: 2, label: '🔹 Inner Circle', color: 'sky' },
+    { layer: 3, label: '🔸 Middle Ring', color: 'emerald' },
+    { layer: 4, label: '🌐 Outer Ring', color: 'purple' },
   ];
 
   return (
     <div className="relative w-full h-full">
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className="w-full h-full cursor-pointer"
         style={{ touchAction: 'none' }}
       />
       
-      {/* Layer selector - matches simulator style */}
+      {/* Layer selector */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-auto">
-        <div className="bg-[#1a1a1f]/80 backdrop-blur-sm border border-[#2a2a2f] rounded-lg flex gap-1 p-1">
-          {layerButtons.map(({ layer, label }) => (
+        <div className="glass flex gap-1 p-1 rounded-lg">
+          {layerButtons.map(({ layer, label, color }) => (
             <button
               key={layer}
               onClick={() => onLayerChange(layer)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
                 activeLayer === layer
-                  ? 'bg-[#d4a843] text-black'
-                  : 'text-[#666] hover:text-white hover:bg-[#2a2a2f]'
+                  ? `bg-${color}-500/20 text-${color}-400 border border-${color}-500/30`
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
               }`}
             >
               {label}
@@ -268,4 +290,6 @@ export default function HexagonalChatCanvas({
       </div>
     </div>
   );
-}
+});
+
+export default HexagonalChatCanvas;
