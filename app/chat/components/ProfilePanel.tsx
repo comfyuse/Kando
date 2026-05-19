@@ -8,7 +8,7 @@ interface ProfilePanelProps {
   cellStatus: string;
   onClose: () => void;
   onSendMessage: (name: string) => void;
-  backendStatus: 'online' | 'offline';
+  backendStatus: 'online' | 'offline' | 'checking';
   onCopyHash: (hash: string, name: string) => void;
   isMobile?: boolean;
 }
@@ -24,6 +24,9 @@ export default function ProfilePanel({
   isMobile = false
 }: ProfilePanelProps) {
   const ring = Math.max(Math.abs(cellCoord.q), Math.abs(cellCoord.r), Math.abs(-cellCoord.q - cellCoord.r));
+  
+  // Button disabled when backend is not online
+  const isButtonDisabled = backendStatus !== 'online';
   
   return (
     <div className={`${!isMobile ? 'absolute top-20 bottom-20 right-4 z-30 w-96' : 'fixed inset-0 z-50'} animate-fadeInLeft pointer-events-auto`}>
@@ -185,10 +188,10 @@ export default function ProfilePanel({
         <div className="px-4 py-3 border-t border-white/10 space-y-2 bg-gradient-to-t from-[var(--bg-secondary)] to-transparent">
           <button 
             onClick={() => onSendMessage(profile.name)}
-            className="w-full py-2.5 text-[11px] font-medium bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white rounded-xl hover:opacity-90 transition-all duration-200 shadow-lg shadow-[var(--jade)]/20"
-            disabled={backendStatus !== 'online'}
+            className="w-full py-2.5 text-[11px] font-medium bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white rounded-xl hover:opacity-90 transition-all duration-200 shadow-lg shadow-[var(--jade)]/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isButtonDisabled}
           >
-            💬 Send Message Request
+            💬 Send Message Request {isButtonDisabled && '(P2P Offline)'}
           </button>
           <button 
             onClick={onClose}

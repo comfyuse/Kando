@@ -666,7 +666,7 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Friends Section - Mobile Optimized */}
+      {/* Friends Section - Desktop */}
       {!isMobile && (
         <div className="absolute bottom-24 right-4 z-20 pointer-events-auto">
           <FriendsList 
