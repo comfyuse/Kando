@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, forwardRef, useImperativeHandle } from 'react';
 import { ChatUser } from '@/lib/chat-types';
 
 interface HexagonalChatCanvasProps {
@@ -30,6 +30,10 @@ const HexagonalChatCanvas = forwardRef(function HexagonalChatCanvas(
   const lastMouseRef = useRef({ x: 0, y: 0 });
   const [size, setSize] = useState(28);
   const hoveredUserRef = useRef<ChatUser | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    render: () => {}
+  }));
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
