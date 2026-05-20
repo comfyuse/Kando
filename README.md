@@ -42,22 +42,68 @@ No blockchain, no gas fees, no central servers – just a self‑organising hexa
 
 ---
 
-## 🚀 Quick Start
+## 📊 1-Approval Propagation Rule
+```mermaid
+flowchart TD
+    Start([Start: Node creates content]) --> Step201[201: Content shared with 6 direct neighbors]
+    Step201 --> Step202[202: Each neighbor may send an approval]
+    Step202 --> Decision203{203: ≥3 approvals\ncollected within timeout?}
+    Decision203 -->|Yes| Step204["204: Content advances to next ring\n(distance +1)"]
+    Step204 --> Decision205{205: Next ring exists?}
+    Decision205 -->|Yes| Step201
+    Decision205 -->|No| End([End: Propagation complete])
+    Decision203 -->|No| Step206[206: Timeout expires]
+    Step206 --> End2([End: Propagation halted])
+```
 
-### Prerequisites
+## 📊 2-Co‑eclosion Citizenship Protocol (RESERVED → CANDIDATE → CITIZEN)
 
-- Node.js 20.x or higher
-- npm or yarn or pnpm
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/comfyuse/Kando.git
-cd Kando
-
-# Install dependencies
-npm install
-
-# Run development server
-npm run dev
+```mermaid
+flowchart TD
+    Start([Start: Node invited by a citizen]) --> Step301[301: Node becomes RESERVED]
+    Step301 --> Decision302{302: All six neighbor\npositions occupied?}
+    Decision302 -->|No| Wait[Wait & retry]
+    Wait --> Decision302
+    Decision302 -->|Yes| Step303[303: Node becomes CANDIDATE]
+    Step303 --> Step304[304: For each of the six neighbors,\ncheck if they have ≥6 neighbors each]
+    Step304 --> Decision305{305: All six neighbors\neach have ≥6 neighbors?}
+    Decision305 -->|No| Wait2[Wait & retry]
+    Wait2 --> Step304
+    Decision305 -->|Yes| Step306[306: Node becomes CITIZEN\nIssue non‑transferable certificate]
+    Step306 --> End([End: Citizen active in network])
+  ```
+  ## 📊 3-Local Voting & Relocation
+  ```mermaid
+   flowchart TD
+    Start([Start: Citizen inactive for 30 days]) --> Step401[401: Status becomes INACTIVE]
+    Step401 --> Step402[402: Living neighbors may initiate a vote]
+    Step402 --> Decision403[s20]
+    
+    Decision403 -->|No| Step404[404: Wait another 30 days]
+    Step404 --> Decision405[s21]
+    Decision405 -->|No| Step406["406: Node becomes DEAD\n(certificate remains as history)"]
+    Decision405 -->|Yes| Decision403
+    
+    Decision403 -->|Yes| Step407[407: Node becomes DISPLACED\nCoordinates freed]
+    Step407 --> Step408[408: DISPLACED node requests relocation\nto an empty coordinate]
+    Step408 --> SelectType[Select move type]
+    
+    SelectType --> TypeA[Type A: Voluntary move\nof an active citizen]
+    SelectType --> TypeB[Type B: DISPLACED to\ndifferent empty coordinate]
+    SelectType --> TypeC["Type C: Return to previous\ncoordinate (if empty)"]
+    
+    TypeA --> Req4[Need 4 approvals]
+    TypeB --> Req3[Need 3 approvals]
+    TypeC --> Req2[Need 2 approvals]
+    
+    Req4 --> Decision410[s24]
+    Req3 --> Decision410
+    Req2 --> Decision410
+    
+    Decision410 -->|Yes| Step411[411: Node moves to new coordinate\nStatus becomes CITIZEN again]
+    Decision410 -->|No| Step412[412: Relocation fails\nnode remains DISPLACED]
+    
+    Step411 --> End([End: Citizen active])
+    Step406 --> End2([End: Dead])
+    Step412 --> End3([End: Displaced])
+ ```
