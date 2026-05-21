@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import Navbar from '@/components/Navbar';
 
 export default function Home() {
   const [isMobile, setIsMobile] = useState(false);
-  const { scrollY } = useScroll();
-  const opacity = useTransform(scrollY, [0, 300], [1, 0]);
-  const scale = useTransform(scrollY, [0, 300], [1, 0.95]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -18,14 +19,126 @@ export default function Home() {
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
   }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+    };
+
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration);
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    
+    return () => {
+      video.removeEventListener('timeupdate', handleTimeUpdate);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+    };
+  }, []);
+
+  const togglePlay = () => {
+    if (videoRef.current) {
+      if (isPlaying) {
+        videoRef.current.pause();
+      } else {
+        videoRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const replay = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = 0;
+      if (!isPlaying) {
+        videoRef.current.play();
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  const forward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.min(videoRef.current.currentTime + 10, duration);
+    }
+  };
+
+  const backward = () => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.max(videoRef.current.currentTime - 10, 0);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (videoRef.current) {
+      const newTime = parseFloat(e.target.value);
+      videoRef.current.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const whyKandoItems = [
+    {
+      icon: "🔒",
+      title: "Privacy First",
+      description: "End-to-end encryption ensures only you and your recipient can read your messages. No third-party access, no data collection, complete anonymity.",
+      stats: "100% encrypted"
+    },
+    {
+      icon: "🌐",
+      title: "Truly Decentralized",
+      description: "No central servers, no single point of failure. Your data lives on a distributed network of nodes, making censorship impossible.",
+      stats: "P2P network"
+    },
+    {
+      icon: "⛽",
+      title: "Gas-Free",
+      description: "Unlike blockchain-based platforms, KANDO operates without transaction fees. Communication is free for everyone, always.",
+      stats: "$0 fees"
+    },
+    {
+      icon: "🛡️",
+      title: "Censorship-Resistant",
+      description: "Built on complex contagion theory with the 3-approval rule. No central authority can delete or block your content.",
+      stats: "3-approval rule"
+    },
+    {
+      icon: "🔓",
+      title: "Open Source",
+      description: "100% transparent codebase. Anyone can audit, contribute, or fork the project. Community-driven development.",
+      stats: "AGPL-3.0"
+    },
+    {
+      icon: "⚡",
+      title: "Lightning Fast",
+      description: "Optimized P2P protocol with hexagonal network topology. Messages spread instantly through the mesh network.",
+      stats: "< 100ms latency"
+    }
+  ];
 
   return (
     <main className="min-h-screen bg-[#0d1117] overflow-x-hidden">
       <Navbar />
 
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16 md:pt-20">
+      {/* Hero Section */}
+      <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16 md:pt-20 pb-10">
+        {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-jade/10 rounded-full blur-3xl animate-pulse" />
           <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-jade/5 rounded-full blur-3xl animate-pulse delay-1000" />
@@ -33,17 +146,117 @@ export default function Home() {
           <div className="absolute inset-0 bg-[linear-gradient(rgba(46,168,138,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(46,168,138,0.03)_1px,transparent_1px)] bg-[size:50px_50px]" />
         </div>
 
-        <motion.div 
-          style={{ opacity, scale }}
-          className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center"
-        >
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          {/* Video Section */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
+            initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
             className="flex justify-center mb-6 md:mb-8"
           >
-            <div className="relative w-24 h-24 md:w-32 md:h-32 lg:w-40 lg:h-40">
+            <div className="relative w-full max-w-2xl mx-auto rounded-2xl overflow-hidden shadow-2xl shadow-jade/20 border border-jade/30">
+              <video
+                ref={videoRef}
+                src="/KANDOPROMOTE.mp4"
+                className="w-full h-auto max-h-[280px] md:max-h-[350px] object-cover"
+                poster="/KANDOlogo.png"
+              />
+              
+              {/* Video Controls Overlay */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 md:p-4">
+                {/* Progress Bar */}
+                <div className="mb-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration || 100}
+                    value={currentTime}
+                    onChange={handleSeek}
+                    className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-jade"
+                  />
+                  <div className="flex justify-between text-[10px] md:text-xs text-white/70 mt-1">
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                </div>
+                
+                {/* Control Buttons */}
+                <div className="flex items-center justify-center gap-2 md:gap-3">
+                  <button
+                    onClick={backward}
+                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
+                    aria-label="Backward 10 seconds"
+                  >
+                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z" />
+                    </svg>
+                  </button>
+                  
+                  <button
+                    onClick={togglePlay}
+                    className="bg-jade hover:bg-jade-hover rounded-full p-2 md:p-3 transition-all duration-200 transform hover:scale-105 shadow-lg"
+                    aria-label={isPlaying ? "Pause video" : "Play video"}
+                  >
+                    {isPlaying ? (
+                      <svg className="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={forward}
+                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
+                    aria-label="Forward 10 seconds"
+                  >
+                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z" />
+                    </svg>
+                  </button>
+                  
+                  <button
+                    onClick={replay}
+                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
+                    aria-label="Replay from start"
+                  >
+                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              
+              {/* Play Button Overlay (when not playing) */}
+              {!isPlaying && currentTime === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <button
+                    onClick={togglePlay}
+                    className="bg-jade hover:bg-jade-hover rounded-full p-4 md:p-5 transition-all duration-200 transform hover:scale-110 shadow-2xl"
+                    aria-label="Play video"
+                  >
+                    <svg className="w-6 h-6 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+
+          {/* Logo */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="flex justify-center mb-4 md:mb-6"
+          >
+            <div className="relative w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24">
               <Image
                 src="/KANDOlogo.png"
                 alt="KANDO Logo"
@@ -54,10 +267,11 @@ export default function Home() {
             </div>
           </motion.div>
 
+          {/* Badge */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
             className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4 md:mb-6"
           >
             <span className="relative flex h-2 w-2">
@@ -67,80 +281,139 @@ export default function Home() {
             <span className="text-xs text-jade font-medium">revolutionary protocol</span>
           </motion.div>
 
+          {/* Title */}
           <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold tracking-tighter"
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tighter"
           >
             <span className="bg-gradient-to-r from-jade via-jade-hover to-jade bg-clip-text text-transparent">
               KANDO
             </span>
           </motion.h1>
 
+          {/* Description */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="mt-4 md:mt-6 text-base sm:text-lg md:text-xl lg:text-2xl text-[#8b949e] max-w-2xl mx-auto px-4"
+            transition={{ duration: 0.5, delay: 0.5 }}
+            className="mt-3 md:mt-4 text-sm sm:text-base md:text-lg lg:text-xl text-[#8b949e] max-w-2xl mx-auto px-4"
           >
             Decentralized, censorship-resistant, and gas-free social network protocol.
-            <span className="block text-xs sm:text-sm md:text-base mt-2">Join the revolution of free communication.</span>
+            <span className="block text-xs sm:text-sm md:text-base mt-1">Join the revolution of free communication.</span>
           </motion.p>
 
+          {/* CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="mt-6 md:mt-8 flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4"
+            transition={{ duration: 0.5, delay: 0.6 }}
+            className="mt-5 md:mt-6 flex flex-col sm:flex-row gap-2 md:gap-3 justify-center px-4"
           >
             <Link
               href="/simulator"
-              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base"
+              className="group inline-flex items-center justify-center gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
             >
               Launch Simulator
-              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
             <Link
               href="/waiting-list"
-              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
+              className="group inline-flex items-center justify-center gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
             >
               Join Waiting List
-              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             </Link>
           </motion.div>
 
+          {/* Scroll Indicator */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className="absolute bottom-6 md:bottom-8 left-1/2 -translate-x-1/2"
+            transition={{ duration: 0.5, delay: 0.7 }}
+            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2"
           >
-            <div className="w-5 h-8 md:w-6 md:h-10 border-2 border-jade/30 rounded-full flex justify-center">
-              <div className="w-1 h-2 bg-jade rounded-full mt-2 animate-bounce" />
+            <div className="w-4 h-7 md:w-5 md:h-8 border-2 border-jade/30 rounded-full flex justify-center">
+              <div className="w-1 h-1.5 bg-jade rounded-full mt-2 animate-bounce" />
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       </section>
 
+      {/* Why KANDO? Section */}
+      <section className="py-16 md:py-20 lg:py-24 bg-gradient-to-b from-[#0d1117] to-[#0a0a0f]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            viewport={{ once: true }}
+            className="text-center mb-10 md:mb-12"
+          >
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4">
+              <span className="text-xs text-jade font-medium">Why KANDO?</span>
+            </div>
+            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-3">
+              The Future of{' '}
+              <span className="bg-gradient-to-r from-jade to-jade-hover bg-clip-text text-transparent">
+                Free Communication
+              </span>
+            </h2>
+            <p className="text-sm md:text-base text-[#8b949e] max-w-2xl mx-auto">
+              KANDO combines cutting-edge research with practical technology to create a truly decentralized messaging protocol.
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+            {whyKandoItems.map((item, index) => (
+              <motion.div
+                key={item.title}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
+                viewport={{ once: true }}
+                className="group"
+              >
+                <div className="github-card p-5 md:p-6 h-full hover:border-jade transition-all duration-300">
+                  <div className="text-3xl md:text-4xl mb-3 group-hover:scale-110 transition-transform duration-300">
+                    {item.icon}
+                  </div>
+                  <h3 className="text-base md:text-lg font-semibold text-white group-hover:text-jade transition-colors mb-2">
+                    {item.title}
+                  </h3>
+                  <p className="text-xs md:text-sm text-[#8b949e] mb-3 leading-relaxed">
+                    {item.description}
+                  </p>
+                  <div className="inline-block px-2 py-0.5 md:px-3 md:py-1 rounded-full bg-jade/10 border border-jade/20">
+                    <span className="text-[10px] md:text-xs text-jade font-mono">{item.stats}</span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Stats Section */}
       <section className="py-12 md:py-16 lg:py-20 border-y border-[#30363d] bg-[#0d1117]/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 lg:gap-8">
             {[
-              { value: '2.4k+', label: 'GitHub Stars', icon: '⭐', delay: 0 },
-              { value: '189+', label: 'Forks', icon: '🍴', delay: 0.1 },
-              { value: '47+', label: 'Contributors', icon: '👥', delay: 0.2 },
-              { value: '100%', label: 'Open Source', icon: '🔓', delay: 0.3 },
+              { value: '2.4k+', label: 'GitHub Stars', icon: '⭐' },
+              { value: '189+', label: 'Forks', icon: '🍴' },
+              { value: '47+', label: 'Contributors', icon: '👥' },
+              { value: '100%', label: 'Open Source', icon: '🔓' },
             ].map((stat, index) => (
               <motion.div
                 key={stat.label}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: stat.delay }}
+                transition={{ duration: 0.5, delay: index * 0.1 }}
                 viewport={{ once: true }}
                 className="text-center group"
               >
@@ -239,6 +512,7 @@ export default function Home() {
         </div>
       </section>
 
+      {/* How It Works Section */}
       <section className="py-16 md:py-20 lg:py-24 bg-[#0d1117]/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -308,6 +582,7 @@ export default function Home() {
         </div>
       </section>
 
+      {/* CTA Section */}
       <section className="py-16 md:py-20 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -321,6 +596,7 @@ export default function Home() {
             <div className="absolute bottom-0 left-0 w-48 h-48 md:w-64 md:h-64 bg-jade/5 rounded-full blur-3xl" />
 
             <div className="relative z-10">
+              <div className="text-5xl md:text-6xl mb-4">🚀</div>
               <h2 className="text-xl md:text-2xl lg:text-4xl font-bold text-white mb-3 md:mb-4">
                 Ready to Join the Revolution?
               </h2>
@@ -330,7 +606,7 @@ export default function Home() {
               <div className="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4">
                 <Link
                   href="/waiting-list"
-                  className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base"
+                  className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
                 >
                   Join Waiting List
                   <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -351,6 +627,8 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
+
+      {/* Footer */}
       <footer className="border-t border-[#30363d] bg-[#0d1117]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-12 lg:py-16">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
