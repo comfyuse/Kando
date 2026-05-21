@@ -18,7 +18,7 @@ const repoStats = {
   topics: ["p2p-network", "libp2p", "decentralized-social-network", "censorship-resistance", "nlnet-grant", "agplv3"],
   repoUrl: "https://github.com/comfyuse/Kando",
   // لینک صحیح برای فایل PDF در گیت‌هاب
-  whitepaperUrl: "https://raw.githubusercontent.com/comfyuse/Kando/main/KANDO-WHITPAPERV1.0.pdf",
+  whitepaperUrl: "https://github.com/comfyuse/Kando/blob/main/whitepaper.docx",
   contributorsUrl: "https://github.com/comfyuse/Kando/graphs/contributors",
   issuesUrl: "https://github.com/comfyuse/Kando/issues",
   forkUrl: "https://github.com/comfyuse/Kando/fork"
