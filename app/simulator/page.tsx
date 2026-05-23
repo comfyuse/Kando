@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -35,6 +35,7 @@ export default function SimulatorPage() {
 
   return (
     <main className="h-screen flex flex-col bg-[#0d1117] overflow-hidden">
+      {/* Mobile Header */}
       {isMobile && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-[#0d1117]/95 backdrop-blur-md border-b border-[#30363d]">
           <div className="flex items-center justify-between px-4 py-3">
@@ -66,6 +67,7 @@ export default function SimulatorPage() {
         </div>
       )}
 
+      {/* Mobile Menu */}
       {isMobile && mobileMenuOpen && (
         <>
           <div 
@@ -104,6 +106,7 @@ export default function SimulatorPage() {
         </>
       )}
 
+      {/* Desktop Sidebar */}
       <div className="hidden md:block fixed left-0 top-0 h-full w-64 bg-[#0d1117] border-r border-[#30363d] z-30 overflow-y-auto">
         <div className="p-4 pt-8">
           <Link href="/" className="flex items-center gap-2 mb-8 group">
@@ -148,6 +151,7 @@ export default function SimulatorPage() {
         </div>
       </div>
 
+      {/* Main Content - Simulator */}
       <div className={`flex-1 flex flex-col min-h-0 ${!isMobile ? 'md:ml-64' : 'mt-14'} transition-all duration-300`}>
         <div className="flex-1 min-h-0">
           <SimulatorContent />

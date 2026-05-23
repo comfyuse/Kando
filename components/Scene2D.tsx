@@ -7,6 +7,7 @@ interface Scene2DProps {
   network: Network
   onCellClick?: (cell: Cell) => void
   onCurveClick?: (fromCell: Cell, toCell: Cell) => void
+  showMessageIcons?: boolean
 }
 
 function axialToPixel(q: number, r: number, size: number, cx: number, cy: number) {
@@ -22,7 +23,7 @@ interface CurveData {
   curvature: number
 }
 
-const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick }: Scene2DProps, ref: any) {
+const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick, showMessageIcons = false }: Scene2DProps, ref: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const offsetRef = useRef({ x: 0, y: 0 })
   const dragRef = useRef(false)
@@ -217,27 +218,38 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
         ctx.restore()
       }
 
-      // Draw message icon (✉️) on cells that have sent a message
-      if (cell.hasMessage && cell.status === 'citizen') {
-        ctx.font = `${Math.max(14, size * 0.8)}px "Segoe UI Emoji"`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.shadowBlur = 0
-        ctx.fillStyle = '#ffd700'
-        ctx.fillText('✉️', x, y - size * 0.6)
-      }
-
-      // Draw vote icon (✅ or 🚫) in the middle of the cell
-      if (cell.vote && cell.status === 'citizen') {
-        ctx.font = `${Math.max(16, size * 0.9)}px "Segoe UI Emoji"`
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        ctx.shadowBlur = 0
-        ctx.fillStyle = cell.vote === 'yes' ? '#4ade80' : '#ef4444'
-        ctx.fillText(cell.vote === 'yes' ? '✅' : '🚫', x, y)
+      // نمایش استیکرها فقط در Message Mode
+      if (showMessageIcons) {
+        // 1. سلول فرستنده پیام - ✉️ (✉️ روی سلول فرستنده)
+        if (cell.isSender && cell.hasMessage && cell.status === 'citizen') {
+          ctx.font = `${Math.max(20, size * 1.0)}px "Segoe UI Emoji"`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.shadowBlur = 0
+          ctx.fillStyle = '#ffd700'
+          ctx.fillText('✉️', x, y - size * 0.5)
+        }
+        // 2. سلول‌هایی که در صف رای هستند و منتظر رای - ✉️ (6 سلول اطراف)
+        else if (cell.messageOriginKey && !cell.hasVoted && !cell.isSender && cell.status === 'citizen' && cell.vote === null) {
+          ctx.font = `${Math.max(18, size * 0.9)}px "Segoe UI Emoji"`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.shadowBlur = 0
+          ctx.fillStyle = '#f0d68a'
+          ctx.fillText('✉️', x, y - size * 0.4)
+        }
+        // 3. بعد از رای دادن - ✅ یا ❌ (✉️ از بین می‌رود و جای خود را به رای می‌دهد)
+        else if (cell.vote && cell.status === 'citizen') {
+          ctx.font = `${Math.max(20, size * 1.0)}px "Segoe UI Emoji"`
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.shadowBlur = 0
+          ctx.fillStyle = cell.vote === 'yes' ? '#4ade80' : '#ef4444'
+          ctx.fillText(cell.vote === 'yes' ? '✅' : '❌', x, y)
+        }
       }
     }
-  }, [network, size, showGraph])
+  }, [network, size, showGraph, showMessageIcons])
 
   useImperativeHandle(ref, () => ({
     render: () => render()

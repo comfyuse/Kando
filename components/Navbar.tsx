@@ -34,6 +34,7 @@ export default function Navbar() {
     { name: 'Chat', href: '/chat', icon: '💬' },
     { name: 'Waiting List', href: '/waiting-list', icon: '⏳' },
     { name: 'Open Source', href: '/open-source', icon: '🔓' },
+    { name: 'Docs', href: '/docs', icon: '📖' }
   ];
 
   return (

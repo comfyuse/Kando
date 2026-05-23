@@ -16,12 +16,17 @@ export default function SimulatorContent() {
   const [voteCount, setVoteCount] = useState<number>(0);
   const [isMobile, setIsMobile] = useState(false);
   const [showStatsBox, setShowStatsBox] = useState(true);
-  const [showRuleBox, setShowRuleBox] = useState(true); 
+  const [showRuleBox, setShowRuleBox] = useState(true);
+  const [mode, setMode] = useState<'growth' | 'message'>('growth');
   const timer = useRef<NodeJS.Timeout | null>(null);
   const sceneRef = useRef<{ render: () => void }>(null);
 
+  const updateStats = useCallback(() => {
+    setStats(netRef.current.stats());
+  }, []);
+
   useEffect(() => { 
-    setStats(netRef.current.stats()); 
+    updateStats();
     if (!document.documentElement.classList.contains('dark')) {
       document.documentElement.classList.add('dark');
     }
@@ -33,31 +38,45 @@ export default function SimulatorContent() {
     window.addEventListener('resize', checkMobile);
     
     netRef.current.setMessageStatusCallback((status: string, ring: number, votes?: number) => {
-      setMessageStatus(status);
-      setCurrentRing(ring);
-      if (votes !== undefined) setVoteCount(votes);
-      
-      setTimeout(() => {
-        if (messageStatus === status) {
-          if (!status.includes('stopped') && !status.includes('maximum')) {
-            setMessageStatus("");
+      if (mode === 'message') {
+        setMessageStatus(status);
+        setCurrentRing(ring);
+        if (votes !== undefined) setVoteCount(votes);
+        
+        setTimeout(() => {
+          if (messageStatus === status) {
+            if (!status.includes('stopped') && !status.includes('maximum')) {
+              setMessageStatus("");
+            }
           }
-        }
-      }, 4000);
+        }, 4000);
+      }
     });
     
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [updateStats, messageStatus, mode]);
 
   useEffect(() => {
-    setStats(netRef.current.stats());
-  }, [tick]);
+    updateStats();
+  }, [tick, updateStats]);
 
-  const step = useCallback(() => {
+  // مرحله رشد شبکه (Growth Mode)
+  const stepGrowth = useCallback(() => {
     netRef.current.tick();
     setTick(t => t + 1);
     sceneRef.current?.render();
-  }, []);
+    updateStats();
+  }, [updateStats]);
+
+  // مرحله پیام‌رسانی (Message Mode)
+  const stepMessage = useCallback(() => {
+    if (mode === 'message') {
+      netRef.current.processMessageTick();
+      setTick(t => t + 1);
+      sceneRef.current?.render();
+      updateStats();
+    }
+  }, [mode, updateStats]);
 
   const toggleAuto = useCallback(() => {
     if (auto) { 
@@ -65,25 +84,65 @@ export default function SimulatorContent() {
       setAuto(false); 
     } else { 
       setAuto(true); 
-      timer.current = setInterval(() => step(), 1200); 
+      if (mode === 'message') {
+        timer.current = setInterval(() => stepMessage(), 1200);
+      } else {
+        timer.current = setInterval(() => stepGrowth(), 200);
+      }
     }
-  }, [auto, step]);
+  }, [auto, stepGrowth, stepMessage, mode]);
 
   const resetSimulation = useCallback(() => {
     if (timer.current) clearInterval(timer.current);
     setAuto(false);
-    window.location.reload();
-  }, []);
+    setMode('growth');
+    netRef.current = new Network();
+    setTick(0);
+    sceneRef.current?.render();
+    updateStats();
+    setMessageStatus("");
+    setCurrentRing(0);
+    setVoteCount(0);
+  }, [updateStats]);
+
+  const switchToGrowth = useCallback(() => {
+    setMode('growth');
+    setAuto(false);
+    if (timer.current) clearInterval(timer.current);
+    setMessageStatus("");
+    setCurrentRing(0);
+    setVoteCount(0);
+    sceneRef.current?.render();
+    updateStats();
+  }, [updateStats]);
+
+  const switchToMessage = useCallback(() => {
+    setMode('message');
+    setAuto(false);
+    if (timer.current) clearInterval(timer.current);
+    setMessageStatus("");
+    setCurrentRing(0);
+    setVoteCount(0);
+    // شروع پیام‌رسانی
+    netRef.current.startMessagePropagation();
+    sceneRef.current?.render();
+    updateStats();
+  }, [updateStats]);
 
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   return (
     <div className="w-full h-full bg-[#0d1117] relative">
-      <Scene2D ref={sceneRef} network={netRef.current} />
+      <Scene2D 
+        ref={sceneRef} 
+        network={netRef.current} 
+        showMessageIcons={mode === 'message'}
+      />
       
-      {messageStatus && (
+      {/* Message Status - فقط در حالت Message Mode */}
+      {mode === 'message' && messageStatus && (
         <div className={`absolute z-20 bg-[#0d1117]/95 backdrop-blur-sm rounded-lg px-3 py-2 md:px-4 md:py-3 border-l-4 border-[#2ea88a] shadow-xl max-w-[90%] md:max-w-md ${
-          isMobile ? 'bottom-16 left-2 right-2' : 'bottom-20 left-4'
+          isMobile ? 'bottom-20 left-2 right-2' : 'bottom-24 left-4'
         }`}>
           <div className="flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex items-center gap-2">
@@ -108,9 +167,10 @@ export default function SimulatorContent() {
         </div>
       )}
       
+      {/* Rule Box */}
       {showRuleBox && (
         <div className={`absolute z-20 bg-[#0d1117]/90 backdrop-blur-sm rounded-lg px-2 py-1.5 md:px-3 md:py-2 border border-[#30363d] shadow-lg ${
-          isMobile ? 'bottom-16 right-2' : 'bottom-4 right-4'
+          isMobile ? 'bottom-20 right-2' : 'bottom-4 right-4'
         }`}>
           <button
             onClick={() => setShowRuleBox(false)}
@@ -139,7 +199,7 @@ export default function SimulatorContent() {
         <button
           onClick={() => setShowRuleBox(true)}
           className={`absolute z-20 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-full p-1.5 md:p-2 shadow-lg transition-all duration-200 ${
-            isMobile ? 'bottom-16 right-2' : 'bottom-4 right-4'
+            isMobile ? 'bottom-20 right-2' : 'bottom-4 right-4'
           }`}
           aria-label="Show rules"
         >
@@ -149,18 +209,41 @@ export default function SimulatorContent() {
         </button>
       )}
       
-      {/* فقط این بخش تغییر کرده - موقعیت دکمه‌ها */}
+      {/* دکمه‌ها */}
       <div className={`absolute z-20 pointer-events-auto flex gap-2 md:gap-3 ${
         isMobile 
-          ? 'left-3 top-1/2 -translate-y-1/2 flex-col' 
+          ? 'left-1/2 -translate-x-1/2 bottom-3 flex-row' 
           : 'bottom-3 left-1/2 -translate-x-1/2'
       }`}>
         <button 
-          onClick={step} 
+          onClick={switchToGrowth} 
+          className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
+            mode === 'growth' 
+              ? 'bg-[#2ea88a] hover:bg-[#3fb892] text-white' 
+              : 'bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] text-[#8b949e]'
+          }`}
+        >
+          🌱 Growth
+        </button>
+        
+        <button 
+          onClick={switchToMessage} 
+          className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
+            mode === 'message' 
+              ? 'bg-[#2ea88a] hover:bg-[#3fb892] text-white' 
+              : 'bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] text-[#8b949e]'
+          }`}
+        >
+          📨 Message
+        </button>
+        
+        <button 
+          onClick={mode === 'message' ? stepMessage : stepGrowth} 
           className="px-3 md:px-5 py-1.5 md:py-2 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg"
         >
           STEP
         </button>
+        
         <button 
           onClick={toggleAuto} 
           className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
@@ -169,6 +252,7 @@ export default function SimulatorContent() {
         >
           {auto ? 'STOP' : 'AUTO'}
         </button>
+        
         <button 
           onClick={resetSimulation} 
           className="px-3 md:px-5 py-1.5 md:py-2 bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] hover:text-[#2ea88a] rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg"
@@ -177,6 +261,7 @@ export default function SimulatorContent() {
         </button>
       </div>
 
+      {/* Stats Box */}
       {showStatsBox && (
         <div className={`absolute z-20 bg-[#0d1117]/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-[#30363d] shadow-lg ${
           isMobile ? 'top-2 left-2 right-2' : 'top-20 left-3'

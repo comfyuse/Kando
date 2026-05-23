@@ -147,12 +147,68 @@ export default function Home() {
         </div>
 
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          {/* Video Section */}
+          
+          {/* Logo */}
           <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
+            initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
-            className="flex justify-center mb-6 md:mb-8"
+            className="flex justify-center mb-4 md:mb-6"
+          >
+            <div className="relative w-20 h-20 md:w-24 md:h-24 lg:w-28 lg:h-28">
+              <Image
+                src="/KANDOlogo.png"
+                alt="KANDO Logo"
+                fill
+                className="object-contain rounded-full"
+                priority
+              />
+            </div>
+          </motion.div>
+
+          {/* Badge */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4 md:mb-6"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-jade opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-jade" />
+            </span>
+            <span className="text-xs text-jade font-medium">revolutionary protocol</span>
+          </motion.div>
+
+          {/* Title */}
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold tracking-tighter"
+          >
+            <span className="bg-gradient-to-r from-jade via-jade-hover to-jade bg-clip-text text-transparent">
+              KANDO
+            </span>
+          </motion.h1>
+
+          {/* Description */}
+          <motion.p
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            className="mt-4 md:mt-6 text-base sm:text-lg md:text-xl lg:text-2xl text-[#8b949e] max-w-2xl mx-auto px-4"
+          >
+            Decentralized, censorship-resistant, and gas-free social network protocol.
+            <span className="block text-sm md:text-base mt-2">Join the revolution of free communication.</span>
+          </motion.p>
+
+          {/* Video Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="mt-10 md:mt-12 flex justify-center"
           >
             <div className="relative w-full max-w-2xl mx-auto rounded-2xl overflow-hidden shadow-2xl shadow-jade/20 border border-jade/30">
               <video
@@ -231,7 +287,7 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Play Button Overlay (when not playing) */}
+              {/* Play Button Overlay */}
               {!isPlaying && currentTime === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                   <button
@@ -249,98 +305,31 @@ export default function Home() {
             </div>
           </motion.div>
 
-          {/* Logo */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="flex justify-center mb-4 md:mb-6"
-          >
-            <div className="relative w-16 h-16 md:w-20 md:h-20 lg:w-24 lg:h-24">
-              <Image
-                src="/KANDOlogo.png"
-                alt="KANDO Logo"
-                fill
-                className="object-contain rounded-full"
-                priority
-              />
-            </div>
-          </motion.div>
-
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4 md:mb-6"
-          >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-jade opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-jade" />
-            </span>
-            <span className="text-xs text-jade font-medium">revolutionary protocol</span>
-          </motion.div>
-
-          {/* Title */}
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tighter"
-          >
-            <span className="bg-gradient-to-r from-jade via-jade-hover to-jade bg-clip-text text-transparent">
-              KANDO
-            </span>
-          </motion.h1>
-
-          {/* Description */}
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className="mt-3 md:mt-4 text-sm sm:text-base md:text-lg lg:text-xl text-[#8b949e] max-w-2xl mx-auto px-4"
-          >
-            Decentralized, censorship-resistant, and gas-free social network protocol.
-            <span className="block text-xs sm:text-sm md:text-base mt-1">Join the revolution of free communication.</span>
-          </motion.p>
-
           {/* CTA Buttons */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.6 }}
-            className="mt-5 md:mt-6 flex flex-col sm:flex-row gap-2 md:gap-3 justify-center px-4"
+            transition={{ duration: 0.5, delay: 0.5 }}
+            className="mt-8 md:mt-10 flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4"
           >
             <Link
               href="/simulator"
-              className="group inline-flex items-center justify-center gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
+              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
             >
               Launch Simulator
-              <svg className="w-3 h-3 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
               </svg>
             </Link>
             <Link
               href="/waiting-list"
-              className="group inline-flex items-center justify-center gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
+              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
             >
               Join Waiting List
-              <svg className="w-3 h-3 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             </Link>
-          </motion.div>
-
-          {/* Scroll Indicator */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.7 }}
-            className="absolute bottom-4 md:bottom-6 left-1/2 -translate-x-1/2"
-          >
-            <div className="w-4 h-7 md:w-5 md:h-8 border-2 border-jade/30 rounded-full flex justify-center">
-              <div className="w-1 h-1.5 bg-jade rounded-full mt-2 animate-bounce" />
-            </div>
           </motion.div>
         </div>
       </section>
@@ -393,35 +382,6 @@ export default function Home() {
                     <span className="text-[10px] md:text-xs text-jade font-mono">{item.stats}</span>
                   </div>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-12 md:py-16 lg:py-20 border-y border-[#30363d] bg-[#0d1117]/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 lg:gap-8">
-            {[
-              { value: '2.4k+', label: 'GitHub Stars', icon: '⭐' },
-              { value: '189+', label: 'Forks', icon: '🍴' },
-              { value: '47+', label: 'Contributors', icon: '👥' },
-              { value: '100%', label: 'Open Source', icon: '🔓' },
-            ].map((stat, index) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="text-center group"
-              >
-                <div className="text-2xl md:text-3xl lg:text-4xl mb-2 group-hover:scale-110 transition-transform duration-300">
-                  {stat.icon}
-                </div>
-                <div className="text-xl md:text-2xl lg:text-3xl font-bold text-jade">{stat.value}</div>
-                <div className="text-xs md:text-sm text-[#8b949e] mt-1">{stat.label}</div>
               </motion.div>
             ))}
           </div>
@@ -582,7 +542,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* CTA Section - با دکمه‌های جدید */}
       <section className="py-16 md:py-20 lg:py-24">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -601,26 +561,26 @@ export default function Home() {
                 Ready to Join the Revolution?
               </h2>
               <p className="text-sm md:text-base lg:text-lg text-[#8b949e] mb-6 md:mb-8 max-w-2xl mx-auto px-4">
-                Be part of the future of communication. Join our waiting list and get early access.
+                Be part of the future of communication. Explore our open source code or read the documentation.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4">
                 <Link
-                  href="/waiting-list"
+                  href="/open-source"
                   className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
                 >
-                  Join Waiting List
                   <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                   </svg>
+                  Open Source
                 </Link>
                 <Link
-                  href="/simulator"
+                  href="/docs"
                   className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
                 >
-                  Try Simulator
                   <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                   </svg>
+                  Documentation
                 </Link>
               </div>
             </div>
@@ -682,7 +642,7 @@ export default function Home() {
               <div>
                 <h3 className="text-xs md:text-sm font-semibold text-white mb-3 md:mb-4">Resources</h3>
                 <ul className="space-y-2">
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Documentation</a></li>
+                  <li><Link href="/docs" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Documentation</Link></li>
                   <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">API Reference</a></li>
                   <li><a href="https://github.com/comfyuse/Kando" target="_blank" rel="noopener noreferrer" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">GitHub</a></li>
                   <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Blog</a></li>
