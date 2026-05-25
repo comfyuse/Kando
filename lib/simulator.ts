@@ -52,6 +52,7 @@ export class Cell {
   isSender: boolean = false
   currentRing: number = 0
   receivedMessageFrom: string | null = null
+  pendingVoteCount: number = 0
 
   constructor(public coord: AxialCoord, status: CellStatus = 'temporary') {
     this.status = status
@@ -70,6 +71,7 @@ export class Cell {
     this.hasVoted = false;
     this.messageOriginKey = null;
     this.showVoteUntil = 0;
+    this.pendingVoteCount = 0;
   }
 }
 
@@ -78,12 +80,13 @@ export class Network {
   day = 0
   birthsToday = 0
   deathsToday = 0
-  maxRing = 8
+  maxRing = 100
   firstRingBuilt = false
   private pendingSpreads: PendingSpread[] = []
   private activeMessageSender: string | null = null
   private messageStatusCallback?: (status: string, ring: number, voteCount?: number) => void
   private isMessageActive: boolean = false
+  private pendingApprovals: Map<string, { fromKey: string; yesCount: number; neighborKeys: string[] }> = new Map()
 
   constructor() {
     this.cells.set('0,0', new Cell(new AxialCoord(0, 0), 'citizen'))
@@ -97,7 +100,6 @@ export class Network {
     return this.cells.get(coord.key())
   }
 
-  // روش اصلاح‌شده: گرفتن سلول‌های یک حلقه خاص از یک مبدأ
   getAllCellsInRing(centerCoord: AxialCoord, ring: number): string[] {
     const result: string[] = []
     for (const [key, cell] of this.cells) {
@@ -111,7 +113,6 @@ export class Network {
     return result
   }
 
-  // گرفتن همسایه‌های یک سلول که شهروند هستند
   private getNeighborKeys(coord: AxialCoord): string[] {
     return coord.neighbors()
       .map(n => n.key())
@@ -121,14 +122,13 @@ export class Network {
       })
   }
 
-  // گرفتن حلقه بعدی (همسایه‌های همسایه‌ها)
   private getNextRingCells(centerCoord: AxialCoord, currentRing: number): string[] {
     const currentRingCells = this.getAllCellsInRing(centerCoord, currentRing)
     const nextRingCellsSet = new Set<string>()
     
     for (const cellKey of currentRingCells) {
       const cell = this.cells.get(cellKey)
-      if (cell) {
+      if (cell && cell.hasMessage) {
         const neighbors = this.getNeighborKeys(cell.coord)
         for (const neighborKey of neighbors) {
           const neighbor = this.cells.get(neighborKey)
@@ -198,6 +198,7 @@ export class Network {
       cell.hasTick = false;
       cell.receivedMessageFrom = null;
     }
+    this.pendingApprovals.clear();
   }
 
   startMessagePropagation(): void {
@@ -228,8 +229,10 @@ export class Network {
       cell.showVoteUntil = 0;
       cell.receivedMessageFrom = null;
       cell.messageOriginKey = null;
+      cell.pendingVoteCount = 0;
     }
     this.pendingSpreads = [];
+    this.pendingApprovals.clear();
     this.activeMessageSender = null;
     this.isMessageActive = false;
   }
@@ -260,15 +263,14 @@ export class Network {
     
     this.clearAllVotes();
     this.pendingSpreads = [];
+    this.pendingApprovals.clear();
     
     this.activeMessageSender = selectedKey;
     selectedCell.hasMessage = true;
     selectedCell.isSender = true;
     
-    // گرفتن 6 همسایه حلقه اول
     const ring1Cells = this.getAllCellsInRing(selectedCell.coord, 1);
     
-    // تنظیم messageOriginKey برای حلقه اول
     for (const neighborKey of ring1Cells) {
       const neighbor = this.cells.get(neighborKey);
       if (neighbor) {
@@ -288,7 +290,7 @@ export class Network {
     this.pendingSpreads.push(pendingSpread);
     
     if (this.messageStatusCallback) {
-      this.messageStatusCallback(`📨 NEW MESSAGE from cell ${selectedKey}! Need 3 confirmations from ${ring1Cells.length} cells in ring 1 to spread to ring 2...`, 1, 0);
+      this.messageStatusCallback(`📨 NEW MESSAGE from cell ${selectedKey}!`, 1, 0);
     }
   }
 
@@ -298,45 +300,52 @@ export class Network {
     }
     
     const currentSpread = this.pendingSpreads[0];
-    
-    // اگر همه سلول‌های حلقه فعلی رأی داده‌اند
+
     if (currentSpread.currentIndex >= currentSpread.targetKeys.length) {
-      const yesVotes = currentSpread.votes.filter(v => v.vote === 'yes').length;
-      const noVotes = currentSpread.votes.filter(v => v.vote === 'no').length;
+      const approvedInThisRing: string[] = [];
       
-      if (this.messageStatusCallback) {
-        this.messageStatusCallback(`📊 Ring ${currentSpread.targetRing} results: ${yesVotes} YES, ${noVotes} NO (need 3 YES to continue)`, currentSpread.targetRing, yesVotes);
+      for (const vote of currentSpread.votes) {
+        if (vote.vote === 'yes') {
+          approvedInThisRing.push(vote.nodeKey);
+        }
       }
       
-      // قانون ۳ تأیید: در این حلقه حداقل ۳ تأیید مستقل نیاز است
-      if (yesVotes >= 3) {
-        const fromCell = this.cells.get(currentSpread.fromKey);
-        
-        if (fromCell) {
-          // علامت‌گذاری سلول‌های رأی‌دهنده مثبت
-          for (const vote of currentSpread.votes) {
-            if (vote.vote === 'yes') {
-              const voterCell = this.cells.get(vote.nodeKey);
-              if (voterCell) {
-                voterCell.hasTick = true;
-                voterCell.tickCount++;
-                voterCell.receivedMessageFrom = currentSpread.fromKey;
-                voterCell.showVoteUntil = this.day + 10;
-              }
-            }
+      const total = currentSpread.targetKeys.length;
+      const approvedCount = approvedInThisRing.length;
+      
+      if (this.messageStatusCallback) {
+        this.messageStatusCallback(`📊 Ring ${currentSpread.targetRing} results: ${approvedCount}/${total} cells approved`, currentSpread.targetRing, approvedCount);
+      }
+      
+      const fromCell = this.cells.get(currentSpread.fromKey);
+      
+      if (fromCell && approvedCount >= 3) {
+        for (const approvedKey of approvedInThisRing) {
+          const approvedCell = this.cells.get(approvedKey);
+          if (approvedCell && !approvedCell.hasMessage) {
+            approvedCell.hasMessage = true;
+            approvedCell.hasTick = true;
+            approvedCell.tickCount++;
+            approvedCell.receivedMessageFrom = currentSpread.fromKey;
+            approvedCell.showVoteUntil = this.day + 10;
           }
+        }
+        
+        const nextRing = currentSpread.targetRing + 1;
+        const nextRingCells = this.getAllCellsInRing(fromCell.coord, nextRing);
+        
+        if (nextRingCells.length > 0) {
+          const validNextCells = nextRingCells.filter(cellKey => {
+            const cell = this.cells.get(cellKey);
+            return cell && !cell.hasMessage;
+          });
           
-          // پیدا کردن حلقه بعدی (حلقه +1)
-          const nextRing = currentSpread.targetRing + 1;
-          const nextRingCells = this.getAllCellsInRing(fromCell.coord, nextRing);
-          
-          if (nextRingCells.length > 0) {
-            // تنظیم messageOriginKey برای حلقه بعدی
-            for (const nextCellKey of nextRingCells) {
+          if (validNextCells.length > 0) {
+            for (const nextCellKey of validNextCells) {
               const nextCell = this.cells.get(nextCellKey);
               if (nextCell) {
                 nextCell.messageOriginKey = currentSpread.fromKey;
-                nextCell.hasVoted = false; // ریست وضعیت رأی برای حلقه بعدی
+                nextCell.hasVoted = false;
                 nextCell.vote = null;
               }
             }
@@ -344,7 +353,7 @@ export class Network {
             const nextSpread: PendingSpread = {
               fromKey: currentSpread.fromKey,
               targetRing: nextRing,
-              targetKeys: nextRingCells,
+              targetKeys: validNextCells,
               currentIndex: 0,
               votes: [],
               messageContent: currentSpread.messageContent
@@ -353,21 +362,22 @@ export class Network {
             this.pendingSpreads.push(nextSpread);
             
             if (this.messageStatusCallback) {
-              this.messageStatusCallback(`✨ Message spread to ring ${nextRing}! ${yesVotes} confirmations received (≥3). Now need 3 confirmations from ${nextRingCells.length} cells in ring ${nextRing} to continue...`, nextRing, yesVotes);
+              this.messageStatusCallback(`✨ Spreading to ring ${nextRing} (${validNextCells.length} cells)`, nextRing, approvedCount);
             }
           } else {
-            // پیام به تمام حلقه‌ها رسید
             if (this.messageStatusCallback) {
-              this.messageStatusCallback(`🏆 Message successfully propagated through all rings! (Final ring: ${currentSpread.targetRing})`, currentSpread.targetRing, yesVotes);
+              this.messageStatusCallback(`🏁 No new cells in ring ${nextRing}`, currentSpread.targetRing, approvedCount);
             }
+          }
+        } else {
+          if (this.messageStatusCallback) {
+            this.messageStatusCallback(`🏆 Message reached all rings! (Final ring: ${currentSpread.targetRing})`, currentSpread.targetRing, approvedCount);
           }
         }
       } else {
-        // قانون: اگر حداقل ۳ تأیید نشود، انتشار متوقف می‌شود
         if (this.messageStatusCallback) {
-          this.messageStatusCallback(`🛑 Message STOPPED at ring ${currentSpread.targetRing} - only ${yesVotes} confirmations received (need ≥3). Propagation halted.`, currentSpread.targetRing, yesVotes);
+          this.messageStatusCallback(`🛑 Message STOPPED at ring ${currentSpread.targetRing} - only ${approvedCount} cells approved (need ≥3)`, currentSpread.targetRing, approvedCount);
         }
-        // پیام را پاک می‌کنیم تا دیگر ادامه ندهد
         this.pendingSpreads = [];
         this.isMessageActive = false;
       }
@@ -376,30 +386,42 @@ export class Network {
       return true;
     }
     
-    // پردازش رأی بعدی از حلقه فعلی
     const targetKey = currentSpread.targetKeys[currentSpread.currentIndex];
     const targetCell = this.cells.get(targetKey);
     
     if (targetCell && targetCell.status === 'citizen' && !targetCell.hasVoted) {
-      // هر سلول در انتشار باید عملکرد مستقل داشته باشد
-      // شبیه‌سازی: 65% شانس تأیید، 35% شانس رد
-      const voteValue: VoteType = Math.random() < 0.65 ? 'yes' : 'no';
-      targetCell.vote = voteValue;
-      targetCell.hasVoted = true;
-      targetCell.messageOriginKey = currentSpread.fromKey;
-      targetCell.showVoteUntil = this.day + 10;
+      const neighbors = this.getNeighborKeys(targetCell.coord);
       
-      currentSpread.votes.push({
-        nodeKey: targetKey,
-        vote: voteValue,
-        timestamp: this.day
-      });
-      
-      const voteIcon = voteValue === 'yes' ? '✅' : '❌';
-      const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
-      
-      if (this.messageStatusCallback) {
-        this.messageStatusCallback(`${voteIcon} Ring ${currentSpread.targetRing} - Cell ${targetKey} ${voteValue === 'yes' ? 'APPROVED' : 'REJECTED'} (${currentSpread.currentIndex + 1}/${currentSpread.targetKeys.length} voted, ${yesSoFar} YES so far)`, currentSpread.targetRing, yesSoFar);
+      if (neighbors.length !== 6) {
+        if (this.messageStatusCallback) {
+          this.messageStatusCallback(`⚠️ Cell ${targetKey} does NOT have 6 neighbors → REJECTED`, currentSpread.targetRing, 0);
+        }
+        targetCell.vote = 'no';
+        targetCell.hasVoted = true;
+        targetCell.messageOriginKey = currentSpread.fromKey;
+        targetCell.showVoteUntil = this.day + 10;
+        currentSpread.votes.push({ nodeKey: targetKey, vote: 'no', timestamp: this.day });
+      } else {
+        let yesCount = 0;
+        for (const nbKey of neighbors) {
+          if (Math.random() < 0.5) yesCount++;
+        }
+        
+        const finalVote: VoteType = yesCount >= 3 ? 'yes' : 'no';
+        
+        targetCell.vote = finalVote;
+        targetCell.hasVoted = true;
+        targetCell.messageOriginKey = currentSpread.fromKey;
+        targetCell.showVoteUntil = this.day + 10;
+        
+        currentSpread.votes.push({ nodeKey: targetKey, vote: finalVote, timestamp: this.day });
+        
+        const voteIcon = finalVote === 'yes' ? '✅' : '❌';
+        const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
+        
+        if (this.messageStatusCallback) {
+          this.messageStatusCallback(`${voteIcon} Ring ${currentSpread.targetRing} - Cell ${targetKey} got ${yesCount}/6 YES → ${finalVote === 'yes' ? 'APPROVED' : 'REJECTED'} (${yesSoFar}/${currentSpread.targetKeys.length})`, currentSpread.targetRing, yesSoFar);
+        }
       }
     }
     
@@ -412,7 +434,6 @@ export class Network {
       if (cell.showVoteUntil > 0 && cell.showVoteUntil < this.day) {
         cell.vote = null;
         cell.showVoteUntil = 0;
-        // توجه: hasVoted را true نگه می‌داریم تا از رأی مجدد جلوگیری شود
       }
     }
   }
@@ -422,7 +443,6 @@ export class Network {
     this.birthsToday = 0;
     this.deathsToday = 0;
 
-    // فقط اگر در حالت پیام نباشیم، رشد شبکه انجام شود
     if (!this.isMessageActive) {
       if (!this.firstRingBuilt) {
         const ring1 = [
