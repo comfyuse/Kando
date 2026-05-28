@@ -6,7 +6,6 @@ import { Network, Cell, AxialCoord } from '@/lib/simulator'
 interface Scene2DProps {
   network: Network
   onCellClick?: (cell: Cell) => void
-  onCurveClick?: (fromCell: Cell, toCell: Cell) => void
   showMessageIcons?: boolean
 }
 
@@ -17,23 +16,14 @@ function axialToPixel(q: number, r: number, size: number, cx: number, cy: number
   }
 }
 
-interface CurveData {
-  fromKey: string
-  toKey: string
-  curvature: number
-}
-
-const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick, showMessageIcons = false }: Scene2DProps, ref: any) {
+const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageIcons = false }: Scene2DProps, ref: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const offsetRef = useRef({ x: 0, y: 0 })
   const dragRef = useRef(false)
   const hasDraggedRef = useRef(false)
   const lastMouseRef = useRef({ x: 0, y: 0 })
   const [size, setSize] = useState(22)
-  const [showGraph, setShowGraph] = useState(true)
-  const curvesRef = useRef<CurveData[]>([])
-  const lastDayRef = useRef(-1)
-  const curvesPixelCacheRef = useRef<{ curve: CurveData; fromX: number; fromY: number; toX: number; toY: number; cpX: number; cpY: number }[]>([])
+  const [showGraph, setShowGraph] = useState(false) // همیشه false - گراف خاموش
 
   useEffect(() => {
     const stored = localStorage.getItem('cando-show-graph')
@@ -68,45 +58,6 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
     const cx = W / 2 + offsetRef.current.x
     const cy = H / 2 + offsetRef.current.y
 
-    if (lastDayRef.current !== network.day) {
-      const prevDay = lastDayRef.current
-      lastDayRef.current = network.day
-
-      curvesRef.current = curvesRef.current.filter(c => {
-        const fromCell = network.cells.get(c.fromKey)
-        const toCell = network.cells.get(c.toKey)
-        if (!fromCell || !toCell) return false
-        if (fromCell.status === 'dead' || toCell.status === 'dead') return false
-        return true
-      })
-
-      const daysPassed = prevDay === -1 ? network.day : 1
-      for (let d = 0; d < daysPassed; d++) {
-        if (Math.random() < 0.3) {
-          const citizens = [...network.cells.values()].filter(c => c.status === 'citizen')
-          if (citizens.length >= 2) {
-            const from = citizens[Math.floor(Math.random() * citizens.length)]
-            const to = citizens[Math.floor(Math.random() * citizens.length)]
-            if (from.coord.key() !== to.coord.key()) {
-              const exists = curvesRef.current.some(
-                c => (c.fromKey === from.coord.key() && c.toKey === to.coord.key()) ||
-                     (c.fromKey === to.coord.key() && c.toKey === from.coord.key())
-              )
-              if (!exists) {
-                curvesRef.current.push({
-                  fromKey: from.coord.key(),
-                  toKey: to.coord.key(),
-                  curvature: (Math.random() - 0.5) * 1.5,
-                })
-              }
-            }
-          }
-        }
-      }
-    }
-
-    curvesPixelCacheRef.current = []
-
     ctx.fillStyle = isDark ? '#0a0a0f' : '#fafaf9'
     ctx.fillRect(0, 0, W, H)
 
@@ -118,52 +69,6 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
     }
     for (let y = (offsetRef.current.y % gs + gs) % gs; y < H; y += gs) {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke()
-    }
-
-    if (showGraph) {
-      for (const curve of curvesRef.current) {
-        const [fq, fr] = curve.fromKey.split(',').map(Number)
-        const [tq, tr] = curve.toKey.split(',').map(Number)
-
-        const fromPixel = axialToPixel(fq, fr, size, cx, cy)
-        const toPixel = axialToPixel(tq, tr, size, cx, cy)
-
-        const fromX = fromPixel.x, fromY = fromPixel.y
-        const toX = toPixel.x, toY = toPixel.y
-
-        const midX = (fromX + toX) / 2, midY = (fromY + toY) / 2
-        const dx = toX - fromX, dy = toY - fromY
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-
-        const cpX = midX - (dy / dist) * dist * curve.curvature * 0.5
-        const cpY = midY + (dx / dist) * dist * curve.curvature * 0.5
-
-        curvesPixelCacheRef.current.push({ curve, fromX, fromY, toX, toY, cpX, cpY })
-
-        ctx.beginPath()
-        ctx.moveTo(fromX, fromY)
-        ctx.quadraticCurveTo(cpX, cpY, toX, toY)
-
-        const gradient = ctx.createLinearGradient(fromX, fromY, toX, toY)
-        gradient.addColorStop(0, isDark ? 'rgba(212,168,67,0.1)' : 'rgba(184,134,11,0.15)')
-        gradient.addColorStop(0.5, isDark ? 'rgba(212,168,67,0.3)' : 'rgba(184,134,11,0.35)')
-        gradient.addColorStop(1, isDark ? 'rgba(212,168,67,0.1)' : 'rgba(184,134,11,0.15)')
-
-        ctx.strokeStyle = gradient
-        ctx.lineWidth = isDark ? 1.2 : 1.5
-        ctx.stroke()
-
-        for (const { x, y } of [{x: fromX, y: fromY}, {x: toX, y: toY}]) {
-          ctx.beginPath()
-          ctx.arc(x, y, 2.5, 0, Math.PI * 2)
-          ctx.fillStyle = isDark ? 'rgba(212,168,67,0.6)' : 'rgba(184,134,11,0.7)'
-          ctx.fill()
-          ctx.beginPath()
-          ctx.arc(x, y, 5, 0, Math.PI * 2)
-          ctx.fillStyle = isDark ? 'rgba(212,168,67,0.12)' : 'rgba(184,134,11,0.18)'
-          ctx.fill()
-        }
-      }
     }
 
     const colors: Record<string, { fill: string; stroke: string }> = {
@@ -220,7 +125,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
 
       // نمایش استیکرها فقط در Message Mode
       if (showMessageIcons) {
-        // 1. سلول فرستنده پیام - ✉️ (✉️ روی سلول فرستنده)
+        // 1. سلول فرستنده پیام - ✉️
         if (cell.isSender && cell.hasMessage && cell.status === 'citizen') {
           ctx.font = `${Math.max(20, size * 1.0)}px "Segoe UI Emoji"`
           ctx.textAlign = 'center'
@@ -229,7 +134,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
           ctx.fillStyle = '#ffd700'
           ctx.fillText('✉️', x, y - size * 0.5)
         }
-        // 2. سلول‌هایی که در صف رای هستند و منتظر رای - ✉️ (6 سلول اطراف)
+        // 2. سلول‌هایی که در صف رای هستند - ✉️
         else if (cell.messageOriginKey && !cell.hasVoted && !cell.isSender && cell.status === 'citizen' && cell.vote === null) {
           ctx.font = `${Math.max(18, size * 0.9)}px "Segoe UI Emoji"`
           ctx.textAlign = 'center'
@@ -238,7 +143,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
           ctx.fillStyle = '#f0d68a'
           ctx.fillText('✉️', x, y - size * 0.4)
         }
-        // 3. بعد از رای دادن - ✅ یا ❌ (✉️ از بین می‌رود و جای خود را به رای می‌دهد)
+        // 3. بعد از رای دادن - ✅ یا ❌
         else if (cell.vote && cell.status === 'citizen') {
           ctx.font = `${Math.max(20, size * 1.0)}px "Segoe UI Emoji"`
           ctx.textAlign = 'center'
@@ -249,7 +154,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
         }
       }
     }
-  }, [network, size, showGraph, showMessageIcons])
+  }, [network, size, showMessageIcons])
 
   useImperativeHandle(ref, () => ({
     render: () => render()
@@ -266,21 +171,6 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
       const q = Math.round((2 / 3 * (px - cx)) / size)
       const r = Math.round((-1 / 3 * (px - cx) + Math.sqrt(3) / 3 * (py - cy)) / size)
       return network.getCell(new AxialCoord(q, r))
-    }
-
-    const getCurveAtPixel = (px: number, py: number) => {
-      const threshold = 8
-      for (const item of curvesPixelCacheRef.current) {
-        for (let t = 0; t <= 1; t += 0.05) {
-          const x = (1-t)*(1-t)*item.fromX + 2*(1-t)*t*item.cpX + t*t*item.toX
-          const y = (1-t)*(1-t)*item.fromY + 2*(1-t)*t*item.cpY + t*t*item.toY
-          const dx = px - x, dy = py - y
-          if (Math.sqrt(dx*dx + dy*dy) < threshold) {
-            return item.curve
-          }
-        }
-      }
-      return null
     }
 
     const onMouseDown = (e: MouseEvent) => {
@@ -304,17 +194,6 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
         const px = e.clientX - rect.left
         const py = e.clientY - rect.top
 
-        const clickedCurve = getCurveAtPixel(px, py)
-        if (clickedCurve && onCurveClick) {
-          const fromCell = network.cells.get(clickedCurve.fromKey)
-          const toCell = network.cells.get(clickedCurve.toKey)
-          if (fromCell && toCell) {
-            onCurveClick(fromCell, toCell)
-            dragRef.current = false
-            return
-          }
-        }
-
         if (onCellClick) {
           const cell = getCellAtPixel(px, py)
           if (cell && cell.isAlive() && cell.status === 'citizen') onCellClick(cell)
@@ -337,7 +216,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, onCurveClick
       window.removeEventListener('mouseup', onMouseUp)
       canvas.removeEventListener('wheel', onWheel)
     }
-  }, [render, size, network, onCellClick, onCurveClick])
+  }, [render, size, network, onCellClick])
 
   useEffect(() => {
     const observer = new MutationObserver((mutations) => {
