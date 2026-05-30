@@ -122,24 +122,46 @@ export class Network {
       })
   }
 
-  private getNextRingCells(centerCoord: AxialCoord, currentRing: number): string[] {
-    const currentRingCells = this.getAllCellsInRing(centerCoord, currentRing)
-    const nextRingCellsSet = new Set<string>()
-    
-    for (const cellKey of currentRingCells) {
-      const cell = this.cells.get(cellKey)
-      if (cell && cell.hasMessage) {
-        const neighbors = this.getNeighborKeys(cell.coord)
-        for (const neighborKey of neighbors) {
-          const neighbor = this.cells.get(neighborKey)
-          if (neighbor && neighbor.coord.distanceTo(centerCoord) === currentRing + 1) {
-            nextRingCellsSet.add(neighborKey)
-          }
-        }
-      }
-    }
-    
-    return Array.from(nextRingCellsSet)
+  /**
+   * DIRECTIONAL NO-BLOCK RULE
+   *
+   * A next-ring cell is blocked ONLY if:
+   *   1. Every bridge (current-ring neighbor that voted) voted NO, AND
+   *   2. Those NO bridges form a contiguous group of 3+ (at least one
+   *      NO-bridge has 2+ adjacent NO-bridge neighbors).
+   *
+   * A single NO or a pair of NOs never blocks.
+   * Even one YES bridge lets the message through.
+   */
+  private isNextRingCellBlocked(
+    nextCellKey: string,
+    currentRingVotes: Map<string, VoteType>
+  ): boolean {
+    const nextCell = this.cells.get(nextCellKey);
+    if (!nextCell) return true;
+
+    const bridgeKeys = nextCell.coord.neighbors()
+      .map(n => n.key())
+      .filter(k => currentRingVotes.has(k));
+
+    if (bridgeKeys.length === 0) return true;
+
+    // Any YES bridge → message gets through, never blocked
+    const hasYesBridge = bridgeKeys.some(k => currentRingVotes.get(k) === 'yes');
+    if (hasYesBridge) return false;
+
+    // All bridges voted NO — only block if they form a group of 3+
+    const noGroupOf3 = bridgeKeys.some(bridgeKey => {
+      const bridgeCell = this.cells.get(bridgeKey);
+      if (!bridgeCell) return false;
+      const adjacentNoCount = bridgeCell.coord.neighbors()
+        .map(n => n.key())
+        .filter(k => currentRingVotes.get(k) === 'no')
+        .length;
+      return adjacentNoCount >= 2; // this cell + 2 neighbors = 3 adjacent NOs
+    });
+
+    return noGroupOf3;
   }
 
   allNeighborCells(coord: AxialCoord): Cell[] {
@@ -156,14 +178,12 @@ export class Network {
     let changed = true
     while (changed) {
       changed = false
-
       for (const [, cell] of this.cells) {
         if (cell.status === 'temporary' && this.allNeighborCells(cell.coord).length === 6) {
           cell.status = 'candidate'
           changed = true
         }
       }
-
       for (const [, cell] of this.cells) {
         if (cell.status !== 'candidate') continue
         const neighbors = this.allNeighborCells(cell.coord)
@@ -179,11 +199,9 @@ export class Network {
   private fillDeadGaps(): void {
     for (const [, cell] of this.cells) {
       if (cell.status !== 'dead') continue
-      
       const neighbors = cell.coord.neighbors()
         .map(n => this.getCell(n))
         .filter(c => c && c.isActive() && c.status !== 'temporary')
-      
       if (neighbors.length >= 3) {
         cell.status = 'temporary'
       }
@@ -238,46 +256,54 @@ export class Network {
   }
 
   private startRandomMessage(): void {
-    const eligibleCells: string[] = [];
+    const origin = new AxialCoord(0, 0);
+    const allEligible: string[] = [];
     for (const [key, cell] of this.cells) {
       if (cell.status === 'citizen' && !cell.hasMessage) {
         const neighbors = this.getNeighborKeys(cell.coord);
         if (neighbors.length === 6) {
-          eligibleCells.push(key);
+          allEligible.push(key);
         }
       }
     }
-    
-    if (eligibleCells.length === 0) {
+
+    if (allEligible.length === 0) {
       if (this.messageStatusCallback) {
         this.messageStatusCallback(`⚠️ No eligible cells with 6 neighbors found! Waiting for network to grow...`, 0);
       }
       return;
     }
-    
-    const randomIndex = Math.floor(Math.random() * eligibleCells.length);
-    const selectedKey = eligibleCells[randomIndex];
+
+    const weightedPool: string[] = [];
+    for (const key of allEligible) {
+      const cell = this.cells.get(key)!;
+      const dist = cell.coord.distanceTo(origin);
+      let weight: number;
+      if (dist <= 1)       weight = 1;
+      else if (dist <= 3)  weight = 8;
+      else if (dist <= 5)  weight = 5;
+      else                 weight = 1;
+      for (let w = 0; w < weight; w++) weightedPool.push(key);
+    }
+
+    const selectedKey = weightedPool[Math.floor(Math.random() * weightedPool.length)];
     const selectedCell = this.cells.get(selectedKey);
-    
     if (!selectedCell) return;
-    
+
     this.clearAllVotes();
     this.pendingSpreads = [];
     this.pendingApprovals.clear();
-    
+
     this.activeMessageSender = selectedKey;
     selectedCell.hasMessage = true;
     selectedCell.isSender = true;
-    
+
     const ring1Cells = this.getAllCellsInRing(selectedCell.coord, 1);
-    
     for (const neighborKey of ring1Cells) {
       const neighbor = this.cells.get(neighborKey);
-      if (neighbor) {
-        neighbor.messageOriginKey = selectedKey;
-      }
+      if (neighbor) neighbor.messageOriginKey = selectedKey;
     }
-    
+
     const pendingSpread: PendingSpread = {
       fromKey: selectedKey,
       targetRing: 1,
@@ -286,40 +312,68 @@ export class Network {
       votes: [],
       messageContent: `Message from ${selectedKey}`
     }
-    
+
     this.pendingSpreads.push(pendingSpread);
-    
+
     if (this.messageStatusCallback) {
       this.messageStatusCallback(`📨 NEW MESSAGE from cell ${selectedKey}!`, 1, 0);
     }
   }
 
   private processNextVote(): boolean {
-    if (this.pendingSpreads.length === 0) {
-      return false;
-    }
-    
+    if (this.pendingSpreads.length === 0) return false;
+
     const currentSpread = this.pendingSpreads[0];
 
+    // ── All votes collected for this ring ──────────────────────────
     if (currentSpread.currentIndex >= currentSpread.targetKeys.length) {
+
+      // Build ring-vote lookup map
+      const ringVoteMap = new Map<string, VoteType>();
+      for (const v of currentSpread.votes) {
+        ringVoteMap.set(v.nodeKey, v.vote);
+      }
+
+      // Separate approved / rejected
       const approvedInThisRing: string[] = [];
-      
+      const rejectedInThisRing: string[] = [];
       for (const vote of currentSpread.votes) {
-        if (vote.vote === 'yes') {
-          approvedInThisRing.push(vote.nodeKey);
+        if (vote.vote === 'yes') approvedInThisRing.push(vote.nodeKey);
+        else rejectedInThisRing.push(vote.nodeKey);
+      }
+
+      // RULE: cells that form a contiguous NO-block (self + 2 adjacent
+      // NO-voters = block of 3) are marked dead immediately.
+      for (const noKey of rejectedInThisRing) {
+        const noCell = this.cells.get(noKey);
+        if (!noCell) continue;
+        const adjacentNoCount = noCell.coord.neighbors()
+          .map(n => n.key())
+          .filter(k => ringVoteMap.get(k) === 'no')
+          .length;
+        if (adjacentNoCount >= 2 && noCell.status === 'temporary') {
+          // Part of a NO-block of ≥3 — mark dead (temporary cells only)
+          noCell.status = 'dead';
+          noCell.vote = 'no';
+          noCell.showVoteUntil = this.day + 10;
+          this.deathsToday++;
         }
       }
-      
+
       const total = currentSpread.targetKeys.length;
       const approvedCount = approvedInThisRing.length;
-      
+
       if (this.messageStatusCallback) {
-        this.messageStatusCallback(`📊 Ring ${currentSpread.targetRing} results: ${approvedCount}/${total} cells approved`, currentSpread.targetRing, approvedCount);
+        this.messageStatusCallback(
+          `📊 Ring ${currentSpread.targetRing} results: ${approvedCount}/${total} cells approved`,
+          currentSpread.targetRing, approvedCount
+        );
       }
-      
+
       const fromCell = this.cells.get(currentSpread.fromKey);
-      
+
       if (fromCell && approvedCount >= 3) {
+        // Give the message to all approved cells
         for (const approvedKey of approvedInThisRing) {
           const approvedCell = this.cells.get(approvedKey);
           if (approvedCell && !approvedCell.hasMessage) {
@@ -330,16 +384,18 @@ export class Network {
             approvedCell.showVoteUntil = this.day + 10;
           }
         }
-        
+
         const nextRing = currentSpread.targetRing + 1;
         const nextRingCells = this.getAllCellsInRing(fromCell.coord, nextRing);
-        
+
         if (nextRingCells.length > 0) {
+          // Filter through the directional NO-block gate
           const validNextCells = nextRingCells.filter(cellKey => {
             const cell = this.cells.get(cellKey);
-            return cell && !cell.hasMessage;
+            if (!cell || cell.hasMessage) return false;
+            return !this.isNextRingCellBlocked(cellKey, ringVoteMap);
           });
-          
+
           if (validNextCells.length > 0) {
             for (const nextCellKey of validNextCells) {
               const nextCell = this.cells.get(nextCellKey);
@@ -349,7 +405,7 @@ export class Network {
                 nextCell.vote = null;
               }
             }
-            
+
             const nextSpread: PendingSpread = {
               fromKey: currentSpread.fromKey,
               targetRing: nextRing,
@@ -358,73 +414,88 @@ export class Network {
               votes: [],
               messageContent: currentSpread.messageContent
             };
-            
+
             this.pendingSpreads.push(nextSpread);
-            
+
             if (this.messageStatusCallback) {
-              this.messageStatusCallback(`✨ Spreading to ring ${nextRing} (${validNextCells.length} cells)`, nextRing, approvedCount);
+              this.messageStatusCallback(
+                `✨ Spreading to ring ${nextRing} (${validNextCells.length} cells — NO-blocked directions excluded)`,
+                nextRing, approvedCount
+              );
             }
           } else {
             if (this.messageStatusCallback) {
-              this.messageStatusCallback(`🏁 No new cells in ring ${nextRing}`, currentSpread.targetRing, approvedCount);
+              this.messageStatusCallback(
+                `🛑 All paths to ring ${nextRing} BLOCKED by NO-blocks`,
+                currentSpread.targetRing, approvedCount
+              );
             }
+            this.isMessageActive = false;
           }
         } else {
           if (this.messageStatusCallback) {
-            this.messageStatusCallback(`🏆 Message reached all rings! (Final ring: ${currentSpread.targetRing})`, currentSpread.targetRing, approvedCount);
+            this.messageStatusCallback(
+              `🏆 Message reached all rings! (Final ring: ${currentSpread.targetRing})`,
+              currentSpread.targetRing, approvedCount
+            );
           }
         }
       } else {
         if (this.messageStatusCallback) {
-          this.messageStatusCallback(`🛑 Message STOPPED at ring ${currentSpread.targetRing} - only ${approvedCount} cells approved (need ≥3)`, currentSpread.targetRing, approvedCount);
+          this.messageStatusCallback(
+            `🛑 Message STOPPED at ring ${currentSpread.targetRing} — only ${approvedCount} cells approved (need ≥3)`,
+            currentSpread.targetRing, approvedCount
+          );
         }
         this.pendingSpreads = [];
         this.isMessageActive = false;
       }
-      
+
       this.pendingSpreads.shift();
       return true;
     }
-    
+
+    // ── Still collecting votes for this ring ──────────────────────
     const targetKey = currentSpread.targetKeys[currentSpread.currentIndex];
     const targetCell = this.cells.get(targetKey);
-    
+
     if (targetCell && targetCell.status === 'citizen' && !targetCell.hasVoted) {
       const neighbors = this.getNeighborKeys(targetCell.coord);
-      
-      if (neighbors.length !== 6) {
-        if (this.messageStatusCallback) {
-          this.messageStatusCallback(`⚠️ Cell ${targetKey} does NOT have 6 neighbors → REJECTED`, currentSpread.targetRing, 0);
-        }
-        targetCell.vote = 'no';
-        targetCell.hasVoted = true;
-        targetCell.messageOriginKey = currentSpread.fromKey;
-        targetCell.showVoteUntil = this.day + 10;
-        currentSpread.votes.push({ nodeKey: targetKey, vote: 'no', timestamp: this.day });
-      } else {
-        let yesCount = 0;
-        for (const nbKey of neighbors) {
-          if (Math.random() < 0.5) yesCount++;
-        }
-        
-        const finalVote: VoteType = yesCount >= 3 ? 'yes' : 'no';
-        
-        targetCell.vote = finalVote;
-        targetCell.hasVoted = true;
-        targetCell.messageOriginKey = currentSpread.fromKey;
-        targetCell.showVoteUntil = this.day + 10;
-        
-        currentSpread.votes.push({ nodeKey: targetKey, vote: finalVote, timestamp: this.day });
-        
-        const voteIcon = finalVote === 'yes' ? '✅' : '❌';
-        const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
-        
-        if (this.messageStatusCallback) {
-          this.messageStatusCallback(`${voteIcon} Ring ${currentSpread.targetRing} - Cell ${targetKey} got ${yesCount}/6 YES → ${finalVote === 'yes' ? 'APPROVED' : 'REJECTED'} (${yesSoFar}/${currentSpread.targetKeys.length})`, currentSpread.targetRing, yesSoFar);
-        }
+
+      // Each neighbor slot casts an independent 60% yes vote.
+      const voteSlots = Math.max(neighbors.length, 1);
+      let yesCount = 0;
+      for (let i = 0; i < voteSlots; i++) {
+        if (Math.random() < 0.60) yesCount++;
+      }
+
+      // CORE RULE: must get at least 3 YES out of neighbor slots.
+      const finalVote: VoteType = yesCount >= 3 ? 'yes' : 'no';
+
+      targetCell.vote = finalVote;
+      targetCell.hasVoted = true;
+      targetCell.messageOriginKey = currentSpread.fromKey;
+      targetCell.showVoteUntil = this.day + 10;
+
+      // Individual rejection → dead only if temporary (not citizen/candidate)
+      if (finalVote === 'no' && targetCell.status === 'temporary') {
+        targetCell.status = 'dead';
+        this.deathsToday++;
+      }
+
+      currentSpread.votes.push({ nodeKey: targetKey, vote: finalVote, timestamp: this.day });
+
+      const voteIcon = finalVote === 'yes' ? '✅' : '❌';
+      const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
+
+      if (this.messageStatusCallback) {
+        this.messageStatusCallback(
+          `${voteIcon} Ring ${currentSpread.targetRing} — Cell ${targetKey} got ${yesCount}/${voteSlots} YES → ${finalVote === 'yes' ? 'APPROVED' : 'DEAD'} (${yesSoFar}/${currentSpread.targetKeys.length})`,
+          currentSpread.targetRing, yesSoFar
+        );
       }
     }
-    
+
     currentSpread.currentIndex++;
     return true;
   }
@@ -450,7 +521,6 @@ export class Network {
           new AxialCoord(-1, 0), new AxialCoord(-1, 1), new AxialCoord(0, 1)
         ];
         const built = ring1.filter(c => this.cells.has(c.key())).length;
-
         if (built < 6) {
           const empty = ring1.filter(c => !this.cells.has(c.key()));
           if (empty.length > 0) {
@@ -488,7 +558,6 @@ export class Network {
 
       const activeCells = [...this.cells.values()].filter(c => c.isActive());
       const emptyNeighbors: AxialCoord[] = [];
-
       for (const cell of activeCells) {
         for (const nb of cell.coord.neighbors()) {
           if (!this.cells.has(nb.key()) && this.isWithinBounds(nb)) {
@@ -498,7 +567,6 @@ export class Network {
           }
         }
       }
-
       if (emptyNeighbors.length > 0) {
         const chosen = emptyNeighbors[Math.floor(Math.random() * emptyNeighbors.length)];
         this.cells.set(chosen.key(), new Cell(chosen, 'temporary'));
@@ -516,17 +584,14 @@ export class Network {
     const allCells = [...this.cells.values()];
     const currentDead = allCells.filter(c => c.status === 'dead').length;
     const maxDead = Math.floor(allCells.length * 0.05);
-
     if (currentDead >= maxDead) return;
 
     const temps = allCells.filter(c => c.status === 'temporary');
     if (temps.length === 0) return;
 
     const deathQuota = Math.max(1, Math.floor(temps.length / 30));
-
     const shuffled = [...temps].sort(() => Math.random() - 0.5);
     const killCount = Math.min(deathQuota, shuffled.length);
-
     for (let i = 0; i < killCount; i++) {
       shuffled[i].status = 'dead';
       this.deathsToday++;
@@ -535,10 +600,8 @@ export class Network {
 
   private reviveDead(): void {
     if (this.day % 2 !== 0) return;
-
     const deadCells = [...this.cells.values()].filter(c => c.status === 'dead');
     if (deadCells.length === 0) return;
-
     const toRevive = deadCells[Math.floor(Math.random() * deadCells.length)];
     toRevive.status = 'temporary';
   }
@@ -549,7 +612,6 @@ export class Network {
     const citizens = alive.filter(c => c.status === 'citizen');
     const candidates = alive.filter(c => c.status === 'candidate');
     const temps = alive.filter(c => c.status === 'temporary');
-    
     return {
       day: this.day,
       alive: alive.length,
