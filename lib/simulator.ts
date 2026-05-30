@@ -477,11 +477,7 @@ export class Network {
       targetCell.messageOriginKey = currentSpread.fromKey;
       targetCell.showVoteUntil = this.day + 10;
 
-      // Individual rejection → dead only if temporary (not citizen/candidate)
-      if (finalVote === 'no' && targetCell.status === 'temporary') {
-        targetCell.status = 'dead';
-        this.deathsToday++;
-      }
+      // Citizens never die from voting — only the message is blocked
 
       currentSpread.votes.push({ nodeKey: targetKey, vote: finalVote, timestamp: this.day });
 
