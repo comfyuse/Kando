@@ -30,6 +30,7 @@ export default function SimulatorPage() {
     { name: 'Simulator', href: '/simulator', icon: '🎮', description: 'CANDO Protocol Simulation' },
     { name: 'Chat', href: '/chat', icon: '💬', description: 'Secure Messaging' },
     { name: 'Waiting List', href: '/waiting-list', icon: '⏳', description: 'Get Early Access' },
+    { name: 'Docs', href: '/docs', icon: '📄', description: 'Protocol Documentation' },
     { name: 'Open Source', href: '/open-source', icon: '🔓', description: 'View on GitHub' },
   ];
 

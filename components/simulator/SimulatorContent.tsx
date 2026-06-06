@@ -18,43 +18,64 @@ export default function SimulatorContent() {
   const [showStatsBox, setShowStatsBox] = useState(true);
   const [showRuleBox, setShowRuleBox] = useState(true);
   const [mode, setMode] = useState<'growth' | 'message'>('growth');
+  // NEW: State for metrics
+  const [metrics, setMetrics] = useState({
+    churnRate: 0,
+    netGrowthRate: 0,
+    viralCoefficient: 0,
+    totalBirths: 0,
+    totalDeaths: 0
+  });
+  const [showMetricsBox, setShowMetricsBox] = useState(true);
   const timer = useRef<NodeJS.Timeout | null>(null);
   const sceneRef = useRef<{ render: () => void }>(null);
 
   const updateStats = useCallback(() => {
     setStats(netRef.current.stats());
+    // NEW: Update metrics
+    const metricsData = netRef.current.getMetrics();
+    setMetrics({
+      churnRate: metricsData.churnRate,
+      netGrowthRate: metricsData.netGrowthRate,
+      viralCoefficient: metricsData.viralCoefficient,
+      totalBirths: metricsData.totalBirths,
+      totalDeaths: metricsData.totalDeaths
+    });
   }, []);
 
-  useEffect(() => { 
+  useEffect(() => {
     updateStats();
     if (!document.documentElement.classList.contains('dark')) {
       document.documentElement.classList.add('dark');
     }
-    
+
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
-    
+
+    return () => window.removeEventListener('resize', checkMobile);
+  }, [updateStats]);
+
+  useEffect(() => {
     netRef.current.setMessageStatusCallback((status: string, ring: number, votes?: number) => {
       if (mode === 'message') {
         setMessageStatus(status);
         setCurrentRing(ring);
         if (votes !== undefined) setVoteCount(votes);
-        
+
         setTimeout(() => {
-          if (messageStatus === status) {
-            if (!status.includes('stopped') && !status.includes('maximum')) {
-              setMessageStatus("");
+          setMessageStatus(prev => {
+            if (prev === status && !status.includes('stopped') && !status.includes('maximum')) {
+              return "";
             }
-          }
+            return prev;
+          });
         }, 4000);
       }
     });
-    
-    return () => window.removeEventListener('resize', checkMobile);
-  }, [updateStats, messageStatus, mode]);
+  }, [mode]);
 
   useEffect(() => {
     updateStats();
@@ -165,6 +186,66 @@ export default function SimulatorContent() {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* NEW: Metrics Box */}
+      {showMetricsBox && (
+        <div className={`absolute z-20 bg-[#0d1117]/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-[#30363d] shadow-lg ${
+          isMobile ? 'top-24 left-2 right-2' : 'top-44 left-3'
+        }`}>
+          <button
+            onClick={() => setShowMetricsBox(false)}
+            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-[#30363d] hover:bg-red-500 text-white flex items-center justify-center transition-all duration-200 z-30"
+            aria-label="Close metrics box"
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          
+          <div className="text-[#2ea88a] text-[10px] md:text-xs font-mono font-bold mb-1.5">📊 GROWTH METRICS</div>
+          
+          <div className="grid grid-cols-1 gap-y-1 text-[10px] md:text-xs">
+            <div className="flex justify-between gap-3">
+              <span className="text-[#8b949e]">CHURN RATE:</span>
+              <span className={`font-mono font-bold ${metrics.churnRate > 20 ? 'text-red-400' : 'text-[#2ea88a]'}`}>
+                {metrics.churnRate.toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-[#8b949e]">NET GROWTH:</span>
+              <span className={`font-mono font-bold ${metrics.netGrowthRate >= 0 ? 'text-[#2ea88a]' : 'text-red-400'}`}>
+                {metrics.netGrowthRate >= 0 ? '+' : ''}{metrics.netGrowthRate.toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-[#8b949e]">VIRAL COEFF:</span>
+              <span className={`font-mono font-bold ${metrics.viralCoefficient >= 1 ? 'text-[#2ea88a]' : 'text-yellow-400'}`}>
+                {metrics.viralCoefficient.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-[#30363d] pt-1 mt-1">
+              <span className="text-[#8b949e] text-[9px]">Births/Deaths:</span>
+              <span className="text-[#2ea88a] font-mono text-[9px]">
+                {metrics.totalBirths}/{metrics.totalDeaths}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!showMetricsBox && (
+        <button
+          onClick={() => setShowMetricsBox(true)}
+          className={`absolute z-20 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-full p-2 shadow-lg transition-all duration-200 ${
+            isMobile ? 'top-24 left-2' : 'top-44 left-3'
+          }`}
+          aria-label="Show metrics"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </button>
       )}
       
       {/* Rule Box */}

@@ -88,6 +88,11 @@ export class Network {
   private isMessageActive: boolean = false
   private pendingApprovals: Map<string, { fromKey: string; yesCount: number; neighborKeys: string[] }> = new Map()
 
+  // Track historical data for churn rate and viral coefficient
+  private historicalAliveCounts: number[] = []
+  private historicalBirths: number[] = []
+  private historicalDeaths: number[] = []
+
   constructor() {
     this.cells.set('0,0', new Cell(new AxialCoord(0, 0), 'citizen'))
   }
@@ -530,6 +535,7 @@ export class Network {
         this.killReds();
         this.fillDeadGaps();
         this.clearOldVotes();
+        this.updateHistoricalData();
         return;
       }
 
@@ -549,6 +555,7 @@ export class Network {
         this.killReds();
         this.fillDeadGaps();
         this.clearOldVotes();
+        this.updateHistoricalData();
         return;
       }
 
@@ -573,6 +580,7 @@ export class Network {
       this.fillDeadGaps();
       this.reviveDead();
       this.clearOldVotes();
+      this.updateHistoricalData();
     }
   }
 
@@ -617,5 +625,163 @@ export class Network {
       dead: all.filter(c => c.status === 'dead').length,
       maxRing: alive.length > 0 ? Math.max(...alive.map(c => c.coord.ring())) : 0,
     };
+  }
+
+  // ========== NEW METHODS FOR METRICS ==========
+
+  /**
+   * Calculates the churn rate (percentage of the population that left/joined)
+   * Churn Rate = (Births + Deaths) / Average Population * 100
+   * @param periodDays Optional number of days to look back (default: last 30 days)
+   */
+  getChurnRate(periodDays: number = 30): number {
+    const stats = this.stats();
+    const currentPopulation = stats.alive;
+    
+    if (currentPopulation === 0) return 0;
+    
+    // Calculate average births and deaths over the specified period
+    const startDay = Math.max(0, this.day - periodDays);
+    const birthsInPeriod = this.historicalBirths.slice(startDay, this.day);
+    const deathsInPeriod = this.historicalDeaths.slice(startDay, this.day);
+    
+    const totalBirths = birthsInPeriod.reduce((sum, b) => sum + b, 0);
+    const totalDeaths = deathsInPeriod.reduce((sum, d) => sum + d, 0);
+    const totalChurn = totalBirths + totalDeaths;
+    
+    // Average population during the period
+    const populationsInPeriod = this.historicalAliveCounts.slice(startDay, this.day);
+    const avgPopulation = populationsInPeriod.length > 0 
+      ? populationsInPeriod.reduce((sum, p) => sum + p, 0) / populationsInPeriod.length
+      : currentPopulation;
+    
+    if (avgPopulation === 0) return 0;
+    
+    return (totalChurn / avgPopulation) * 100;
+  }
+
+  /**
+   * Calculates the net growth rate
+   * Net Growth Rate = (Births - Deaths) / Population * 100
+   * @param periodDays Optional number of days to look back (default: last 30 days)
+   */
+  getNetGrowthRate(periodDays: number = 30): number {
+    const stats = this.stats();
+    const currentPopulation = stats.alive;
+    
+    if (currentPopulation === 0) return 0;
+    
+    // Calculate net growth over the specified period
+    const startDay = Math.max(0, this.day - periodDays);
+    const birthsInPeriod = this.historicalBirths.slice(startDay, this.day);
+    const deathsInPeriod = this.historicalDeaths.slice(startDay, this.day);
+    
+    const totalBirths = birthsInPeriod.reduce((sum, b) => sum + b, 0);
+    const totalDeaths = deathsInPeriod.reduce((sum, d) => sum + d, 0);
+    const netGrowth = totalBirths - totalDeaths;
+    
+    // Average population during the period
+    const populationsInPeriod = this.historicalAliveCounts.slice(startDay, this.day);
+    const avgPopulation = populationsInPeriod.length > 0 
+      ? populationsInPeriod.reduce((sum, p) => sum + p, 0) / populationsInPeriod.length
+      : currentPopulation;
+    
+    if (avgPopulation === 0) return 0;
+    
+    return (netGrowth / avgPopulation) * 100;
+  }
+
+  /**
+   * Calculates the viral coefficient (K-factor)
+   * K-factor = Average number of new citizens created per existing citizen
+   * This measures how many new "infections" (citizens) each existing citizen produces
+   * @param periodDays Optional number of days to look back (default: last 30 days)
+   */
+  getViralCoefficient(periodDays: number = 30): number {
+    const stats = this.stats();
+    const currentPopulation = stats.alive;
+    
+    if (currentPopulation === 0) return 0;
+    
+    // Calculate new citizens created per day over the period
+    const startDay = Math.max(0, this.day - periodDays);
+    const birthsInPeriod = this.historicalBirths.slice(startDay, this.day);
+    
+    const totalNewCitizens = birthsInPeriod.reduce((sum, b) => sum + b, 0);
+    
+    // Average existing population during the period (excluding new births for that day)
+    const populationsInPeriod = this.historicalAliveCounts.slice(startDay, this.day);
+    const avgExistingPopulation = populationsInPeriod.length > 0
+      ? populationsInPeriod.reduce((sum, p, idx) => {
+          // Subtract same-day births to get existing population
+          const existingPop = p - (this.historicalBirths[startDay + idx] || 0);
+          return sum + existingPop;
+        }, 0) / populationsInPeriod.length
+      : currentPopulation;
+    
+    if (avgExistingPopulation === 0) return 0;
+    
+    // K-factor = total new citizens / total existing population over the period
+    return totalNewCitizens / avgExistingPopulation;
+  }
+
+  /**
+   * Updates historical tracking data - call this after each tick
+   */
+  private updateHistoricalData(): void {
+    const stats = this.stats();
+    this.historicalAliveCounts.push(stats.alive);
+    this.historicalBirths.push(this.birthsToday);
+    this.historicalDeaths.push(this.deathsToday);
+    
+    // Keep only last 1000 days of history to prevent memory issues
+    const maxHistory = 1000;
+    if (this.historicalAliveCounts.length > maxHistory) {
+      this.historicalAliveCounts.shift();
+      this.historicalBirths.shift();
+      this.historicalDeaths.shift();
+    }
+  }
+
+  /**
+   * Gets complete metrics report
+   */
+  getMetrics(): {
+    churnRate: number;
+    netGrowthRate: number;
+    viralCoefficient: number;
+    currentPopulation: number;
+    totalBirths: number;
+    totalDeaths: number;
+    day: number;
+  } {
+    return {
+      churnRate: this.getChurnRate(),
+      netGrowthRate: this.getNetGrowthRate(),
+      viralCoefficient: this.getViralCoefficient(),
+      currentPopulation: this.stats().alive,
+      totalBirths: this.historicalBirths.reduce((sum, b) => sum + b, 0),
+      totalDeaths: this.historicalDeaths.reduce((sum, d) => sum + d, 0),
+      day: this.day
+    };
+  }
+
+  /**
+   * Reset the entire network with all historical data
+   */
+  reset(): void {
+    this.cells.clear();
+    this.cells.set('0,0', new Cell(new AxialCoord(0, 0), 'citizen'));
+    this.day = 0;
+    this.birthsToday = 0;
+    this.deathsToday = 0;
+    this.firstRingBuilt = false;
+    this.pendingSpreads = [];
+    this.activeMessageSender = null;
+    this.isMessageActive = false;
+    this.pendingApprovals.clear();
+    this.historicalAliveCounts = [];
+    this.historicalBirths = [];
+    this.historicalDeaths = [];
   }
 }
