@@ -180,7 +180,7 @@ export default function SimulatorContent() {
               )}
               {currentRing > 0 && (
                 <span className="text-[9px] md:text-xs bg-[#30363d] px-1.5 py-0.5 md:px-2 md:py-1 rounded-full text-[#8b949e] font-mono">
-                  Ring {currentRing}
+                  Hop {currentRing}
                 </span>
               )}
             </div>
@@ -271,7 +271,7 @@ export default function SimulatorContent() {
             Need 3+ YES to spread
           </div>
           <div className="text-[#8b949e] text-[7px] md:text-[9px] font-mono">
-            Spreads ring by ring
+            Spreads cell to cell
           </div>
         </div>
       )}

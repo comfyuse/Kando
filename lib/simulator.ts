@@ -127,48 +127,6 @@ export class Network {
       })
   }
 
-  /**
-   * DIRECTIONAL NO-BLOCK RULE
-   *
-   * A next-ring cell is blocked ONLY if:
-   *   1. Every bridge (current-ring neighbor that voted) voted NO, AND
-   *   2. Those NO bridges form a contiguous group of 3+ (at least one
-   *      NO-bridge has 2+ adjacent NO-bridge neighbors).
-   *
-   * A single NO or a pair of NOs never blocks.
-   * Even one YES bridge lets the message through.
-   */
-  private isNextRingCellBlocked(
-    nextCellKey: string,
-    currentRingVotes: Map<string, VoteType>
-  ): boolean {
-    const nextCell = this.cells.get(nextCellKey);
-    if (!nextCell) return true;
-
-    const bridgeKeys = nextCell.coord.neighbors()
-      .map(n => n.key())
-      .filter(k => currentRingVotes.has(k));
-
-    if (bridgeKeys.length === 0) return true;
-
-    // Any YES bridge → message gets through, never blocked
-    const hasYesBridge = bridgeKeys.some(k => currentRingVotes.get(k) === 'yes');
-    if (hasYesBridge) return false;
-
-    // All bridges voted NO — only block if they form a group of 3+
-    const noGroupOf3 = bridgeKeys.some(bridgeKey => {
-      const bridgeCell = this.cells.get(bridgeKey);
-      if (!bridgeCell) return false;
-      const adjacentNoCount = bridgeCell.coord.neighbors()
-        .map(n => n.key())
-        .filter(k => currentRingVotes.get(k) === 'no')
-        .length;
-      return adjacentNoCount >= 2; // this cell + 2 neighbors = 3 adjacent NOs
-    });
-
-    return noGroupOf3;
-  }
-
   allNeighborCells(coord: AxialCoord): Cell[] {
     return coord.neighbors()
       .map(n => this.getCell(n))
@@ -370,15 +328,16 @@ export class Network {
 
       if (this.messageStatusCallback) {
         this.messageStatusCallback(
-          `📊 Ring ${currentSpread.targetRing} results: ${approvedCount}/${total} cells approved`,
+          `📊 Hop ${currentSpread.targetRing} results: ${approvedCount}/${total} cells approved`,
           currentSpread.targetRing, approvedCount
         );
       }
 
-      const fromCell = this.cells.get(currentSpread.fromKey);
-
-      if (fromCell && approvedCount >= 3) {
-        // Give the message to all approved cells
+      // Each approving cell already met the 3-confirmation rule on its own
+      // surrounding hexagon, so any positive vote lets the message move on.
+      if (approvedCount > 0) {
+        // Hand the message to every cell that voted YES — each one now acts as
+        // a center that forwards the message onward.
         for (const approvedKey of approvedInThisRing) {
           const approvedCell = this.cells.get(approvedKey);
           if (approvedCell && !approvedCell.hasMessage) {
@@ -390,57 +349,67 @@ export class Network {
           }
         }
 
-        const nextRing = currentSpread.targetRing + 1;
-        const nextRingCells = this.getAllCellsInRing(fromCell.coord, nextRing);
+        // CELL-TO-CELL PROPAGATION (no concentric rings):
+        // The next frontier is built by continuing outward FROM the cells that
+        // just voted YES — each approving cell forwards the message to its own
+        // citizen neighbours that have not yet been reached. Cells that already
+        // hold the message, already voted, or are already queued are skipped,
+        // so the message only ever moves forward along the approving directions
+        // ("از همان سو") and never loops back.
+        const queued = new Set<string>();
+        for (const sp of this.pendingSpreads) {
+          for (const k of sp.targetKeys) queued.add(k);
+        }
 
-        if (nextRingCells.length > 0) {
-          // Filter through the directional NO-block gate
-          const validNextCells = nextRingCells.filter(cellKey => {
-            const cell = this.cells.get(cellKey);
-            if (!cell || cell.hasMessage) return false;
-            return !this.isNextRingCellBlocked(cellKey, ringVoteMap);
-          });
+        const nextFrontier: string[] = [];
+        const seen = new Set<string>();
+        for (const approvedKey of approvedInThisRing) {
+          const approvedCell = this.cells.get(approvedKey);
+          if (!approvedCell) continue;
+          for (const nb of approvedCell.coord.neighbors()) {
+            const nk = nb.key();
+            if (seen.has(nk) || queued.has(nk)) continue;
+            const nc = this.cells.get(nk);
+            if (!nc || nc.status !== 'citizen') continue;
+            if (nc.hasMessage || nc.hasVoted) continue;
+            seen.add(nk);
+            nextFrontier.push(nk);
+          }
+        }
 
-          if (validNextCells.length > 0) {
-            for (const nextCellKey of validNextCells) {
-              const nextCell = this.cells.get(nextCellKey);
-              if (nextCell) {
-                nextCell.messageOriginKey = currentSpread.fromKey;
-                nextCell.hasVoted = false;
-                nextCell.vote = null;
-              }
+        const nextHop = currentSpread.targetRing + 1;
+
+        if (nextFrontier.length > 0) {
+          for (const nextCellKey of nextFrontier) {
+            const nextCell = this.cells.get(nextCellKey);
+            if (nextCell) {
+              nextCell.messageOriginKey = currentSpread.fromKey;
+              nextCell.hasVoted = false;
+              nextCell.vote = null;
             }
+          }
 
-            const nextSpread: PendingSpread = {
-              fromKey: currentSpread.fromKey,
-              targetRing: nextRing,
-              targetKeys: validNextCells,
-              currentIndex: 0,
-              votes: [],
-              messageContent: currentSpread.messageContent
-            };
+          const nextSpread: PendingSpread = {
+            fromKey: currentSpread.fromKey,
+            targetRing: nextHop,
+            targetKeys: nextFrontier,
+            currentIndex: 0,
+            votes: [],
+            messageContent: currentSpread.messageContent
+          };
 
-            this.pendingSpreads.push(nextSpread);
+          this.pendingSpreads.push(nextSpread);
 
-            if (this.messageStatusCallback) {
-              this.messageStatusCallback(
-                `✨ Spreading to ring ${nextRing} (${validNextCells.length} cells — NO-blocked directions excluded)`,
-                nextRing, approvedCount
-              );
-            }
-          } else {
-            if (this.messageStatusCallback) {
-              this.messageStatusCallback(
-                `🛑 All paths to ring ${nextRing} BLOCKED by NO-blocks`,
-                currentSpread.targetRing, approvedCount
-              );
-            }
-            this.isMessageActive = false;
+          if (this.messageStatusCallback) {
+            this.messageStatusCallback(
+              `✨ Propagating from ${approvedCount} approving cell(s) → ${nextFrontier.length} new cell(s) (hop ${nextHop})`,
+              nextHop, approvedCount
+            );
           }
         } else {
           if (this.messageStatusCallback) {
             this.messageStatusCallback(
-              `🏆 Message reached all rings! (Final ring: ${currentSpread.targetRing})`,
+              `🏆 Message fully propagated — no new cells left to reach (hop ${currentSpread.targetRing})`,
               currentSpread.targetRing, approvedCount
             );
           }
@@ -448,7 +417,7 @@ export class Network {
       } else {
         if (this.messageStatusCallback) {
           this.messageStatusCallback(
-            `🛑 Message STOPPED at ring ${currentSpread.targetRing} — only ${approvedCount} cells approved (need ≥3)`,
+            `🛑 Propagation STOPPED at hop ${currentSpread.targetRing} — no cell reached 3 confirmations`,
             currentSpread.targetRing, approvedCount
           );
         }
@@ -465,32 +434,38 @@ export class Network {
     const targetCell = this.cells.get(targetKey);
 
     if (targetCell && targetCell.status === 'citizen' && !targetCell.hasVoted) {
-      // Collect all citizen neighbors, separated by whether they're already
-      // in the propagation path (shared members) or fresh voters.
+      // Collect all citizen neighbors (the up-to-6 cells surrounding this one).
       const allNeighborCells = targetCell.coord.neighbors()
         .map(n => this.cells.get(n.key()))
         .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
 
-      // Anti-loop shared-member rule:
-      // A neighbor already carrying the message is a "shared member" between
-      // this cell and the incoming propagation direction. Letting it vote YES
-      // would allow circular confirmation (a loop). It is treated as NO.
-      // Only fresh (non-path) neighbors can cast a YES vote.
-      let yesCount = 0;
-      let availableVoters = 0;
-      let loopBlocked = 0;
-
+      // 3-of-6/7 CONFIRMATION RULE.
+      //
+      // We simply LOOK AT the surrounding members and count how many confirm:
+      //   • a neighbour that has already approved (it holds the message — a
+      //     relay center, INCLUDING any shared member that already said YES)
+      //     is a standing confirmation, exactly as it shows on screen (green);
+      //   • an undecided neighbour casts a fresh confirmation (60% YES);
+      //   • a neighbour that already voted NO contributes nothing.
+      // The cell confirms as soon as it holds ≥3 confirmations across its
+      // surrounding hexagon. Shared members are NOT stripped from the tally —
+      // a visible 3-of-7 must always count as 3. Looping cannot happen anyway,
+      // because the BFS frontier never revisits a cell that has already voted
+      // or already holds the message ("از همان سو" — forward only).
+      let confirmations = 0;
+      let standing = 0; // neighbours that already approved (green on screen)
+      let fresh = 0;    // undecided neighbours that confirm now
       for (const neighbor of allNeighborCells) {
         if (neighbor.hasMessage) {
-          loopBlocked++;        // shared member in path → implicit NO
-        } else {
-          availableVoters++;
-          if (Math.random() < 0.60) yesCount++;
+          standing++;
+          confirmations++;
+        } else if (!neighbor.hasVoted) {
+          if (Math.random() < 0.60) { fresh++; confirmations++; }
         }
+        // a neighbour that already voted NO → no confirmation
       }
 
-      // CORE RULE: need at least 3 YES from non-path neighbors.
-      const finalVote: VoteType = yesCount >= 3 ? 'yes' : 'no';
+      const finalVote: VoteType = confirmations >= 3 ? 'yes' : 'no';
 
       targetCell.vote = finalVote;
       targetCell.hasVoted = true;
@@ -501,11 +476,10 @@ export class Network {
 
       const voteIcon = finalVote === 'yes' ? '✅' : '❌';
       const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
-      const blockedNote = loopBlocked > 0 ? ` [${loopBlocked} loop-blocked]` : '';
 
       if (this.messageStatusCallback) {
         this.messageStatusCallback(
-          `${voteIcon} Ring ${currentSpread.targetRing} — Cell ${targetKey}: ${yesCount}/${availableVoters} YES${blockedNote} → ${finalVote === 'yes' ? 'APPROVED' : 'REJECTED'} (${yesSoFar}/${currentSpread.targetKeys.length})`,
+          `${voteIcon} Hop ${currentSpread.targetRing} — Cell ${targetKey}: ${confirmations} conf (${standing} standing + ${fresh} fresh) → ${finalVote === 'yes' ? 'APPROVED' : 'REJECTED'} (${yesSoFar}/${currentSpread.targetKeys.length})`,
           currentSpread.targetRing, yesSoFar
         );
       }
