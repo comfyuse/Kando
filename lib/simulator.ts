@@ -465,16 +465,31 @@ export class Network {
     const targetCell = this.cells.get(targetKey);
 
     if (targetCell && targetCell.status === 'citizen' && !targetCell.hasVoted) {
-      const neighbors = this.getNeighborKeys(targetCell.coord);
+      // Collect all citizen neighbors, separated by whether they're already
+      // in the propagation path (shared members) or fresh voters.
+      const allNeighborCells = targetCell.coord.neighbors()
+        .map(n => this.cells.get(n.key()))
+        .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
 
-      // Each neighbor slot casts an independent 60% yes vote.
-      const voteSlots = Math.max(neighbors.length, 1);
+      // Anti-loop shared-member rule:
+      // A neighbor already carrying the message is a "shared member" between
+      // this cell and the incoming propagation direction. Letting it vote YES
+      // would allow circular confirmation (a loop). It is treated as NO.
+      // Only fresh (non-path) neighbors can cast a YES vote.
       let yesCount = 0;
-      for (let i = 0; i < voteSlots; i++) {
-        if (Math.random() < 0.60) yesCount++;
+      let availableVoters = 0;
+      let loopBlocked = 0;
+
+      for (const neighbor of allNeighborCells) {
+        if (neighbor.hasMessage) {
+          loopBlocked++;        // shared member in path → implicit NO
+        } else {
+          availableVoters++;
+          if (Math.random() < 0.60) yesCount++;
+        }
       }
 
-      // CORE RULE: must get at least 3 YES out of neighbor slots.
+      // CORE RULE: need at least 3 YES from non-path neighbors.
       const finalVote: VoteType = yesCount >= 3 ? 'yes' : 'no';
 
       targetCell.vote = finalVote;
@@ -482,16 +497,15 @@ export class Network {
       targetCell.messageOriginKey = currentSpread.fromKey;
       targetCell.showVoteUntil = this.day + 10;
 
-      // Citizens never die from voting — only the message is blocked
-
       currentSpread.votes.push({ nodeKey: targetKey, vote: finalVote, timestamp: this.day });
 
       const voteIcon = finalVote === 'yes' ? '✅' : '❌';
       const yesSoFar = currentSpread.votes.filter(v => v.vote === 'yes').length;
+      const blockedNote = loopBlocked > 0 ? ` [${loopBlocked} loop-blocked]` : '';
 
       if (this.messageStatusCallback) {
         this.messageStatusCallback(
-          `${voteIcon} Ring ${currentSpread.targetRing} — Cell ${targetKey} got ${yesCount}/${voteSlots} YES → ${finalVote === 'yes' ? 'APPROVED' : 'DEAD'} (${yesSoFar}/${currentSpread.targetKeys.length})`,
+          `${voteIcon} Ring ${currentSpread.targetRing} — Cell ${targetKey}: ${yesCount}/${availableVoters} YES${blockedNote} → ${finalVote === 'yes' ? 'APPROVED' : 'REJECTED'} (${yesSoFar}/${currentSpread.targetKeys.length})`,
           currentSpread.targetRing, yesSoFar
         );
       }
