@@ -250,7 +250,10 @@ export class Network {
     const ring1 = senderCoord.neighbors()
       .map(n => this.cells.get(n.key()))
       .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
+    // Wait for the first 7 to finish voting AND clear the ≥3 gate. If the
+    // opening ring failed, no parallel side may spawn — the message is dead.
     if (ring1.length === 0 || !ring1.every(c => c.hasVoted)) return;
+    if (ring1.filter(c => c.vote === 'yes').length < 3) return;
 
     // Cells already claimed by some pending frontier — never enqueue twice.
     const queued = new Set<string>();
@@ -258,12 +261,14 @@ export class Network {
       for (const k of sp.targetKeys) queued.add(k);
     }
 
-    // Snapshot eligible sources first (approved, non-sender, not yet forwarded).
+    // Snapshot eligible sources first (anyone who has VOTED — yes OR no — and
+    // is not the sender and hasn't forwarded yet). A red cell forwards too, so
+    // its surrounding cells still get reached; only YES cells get promoted.
     const sources: Cell[] = [];
     for (const [, cell] of this.cells) {
       if (cell.eagerForwarded) continue;
       if (cell.isSender) continue;
-      if (!(cell.hasVoted && cell.vote === 'yes')) continue;
+      if (!cell.hasVoted) continue;
       sources.push(cell);
     }
 
@@ -294,8 +299,10 @@ export class Network {
 
       if (untouched.length === 0) continue;
 
-      // Safe to promote now (all nearer neighbours already voted).
-      if (!cell.hasMessage) {
+      // Only YES cells get promoted to message holders (a red cell stays red and
+      // contributes 0 to its neighbours' counts). Promotion is safe here because
+      // every nearer neighbour has already voted, so it cannot change a sibling.
+      if (cell.vote === 'yes' && !cell.hasMessage) {
         cell.hasMessage = true;
         cell.hasTick = true;
         cell.tickCount++;
@@ -480,11 +487,15 @@ export class Network {
         );
       }
 
-      // Each approving cell already met the 3-confirmation rule on its own
-      // surrounding hexagon, so any positive vote lets the message move on.
-      if (approvedCount > 0) {
+      // FIRST-RING GATE: the opening ring (the sender's first 7) must collect
+      // at least 3 approvals to start propagating at all — otherwise the
+      // message stops here. Once it is under way, every voted cell (YES or NO)
+      // forwards, so a red cell never blocks its neighbours from being reached.
+      const firstRingFailed = currentSpread.targetRing === 1 && approvedCount < 3;
+      if (!firstRingFailed) {
         // Hand the message to every cell that voted YES — each one now acts as
-        // a center that forwards the message onward.
+        // a center that forwards the message onward. NO (red) cells are NOT
+        // promoted, so they never count as a confirmation for anyone.
         for (const approvedKey of approvedInThisRing) {
           const approvedCell = this.cells.get(approvedKey);
           if (approvedCell && !approvedCell.hasMessage) {
@@ -496,13 +507,12 @@ export class Network {
           }
         }
 
-        // CELL-TO-CELL PROPAGATION (no concentric rings):
-        // The next frontier is built by continuing outward FROM the cells that
-        // just voted YES — each approving cell forwards the message to its own
-        // citizen neighbours that have not yet been reached. Cells that already
-        // hold the message, already voted, or are already queued are skipped,
-        // so the message only ever moves forward along the approving directions
-        // ("از همان سو") and never loops back.
+        // Build the next frontier from EVERY cell that voted this ring — YES
+        // AND NO. A red (NO) cell must still hand the message to its own
+        // surrounding cells so each of them gets its OWN chance to reach 3-of-7;
+        // a single NO must never carve a dead zone around itself. Each new cell
+        // still decides purely by its own 3-of-7 count (a red neighbour, having
+        // no message, simply contributes 0 — it does not block).
         const queued = new Set<string>();
         for (const sp of this.pendingSpreads) {
           for (const k of sp.targetKeys) queued.add(k);
@@ -510,10 +520,10 @@ export class Network {
 
         const nextFrontier: string[] = [];
         const seen = new Set<string>();
-        for (const approvedKey of approvedInThisRing) {
-          const approvedCell = this.cells.get(approvedKey);
-          if (!approvedCell) continue;
-          for (const nb of approvedCell.coord.neighbors()) {
+        for (const vote of currentSpread.votes) {
+          const votedCell = this.cells.get(vote.nodeKey);
+          if (!votedCell) continue;
+          for (const nb of votedCell.coord.neighbors()) {
             const nk = nb.key();
             if (seen.has(nk) || queued.has(nk)) continue;
             const nc = this.cells.get(nk);
@@ -564,7 +574,7 @@ export class Network {
       } else {
         if (this.messageStatusCallback) {
           this.messageStatusCallback(
-            `🛑 Propagation STOPPED at hop ${currentSpread.targetRing} — no cell reached 3 confirmations`,
+            `🛑 Propagation STOPPED — only ${approvedCount}/${total} of the opening 7 approved (need ≥3 to start)`,
             currentSpread.targetRing, approvedCount
           );
         }
