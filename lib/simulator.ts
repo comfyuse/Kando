@@ -232,6 +232,42 @@ export class Network {
   }
 
   /**
+   * Counts the GREEN (message-holding) members of a cell's 7-member community —
+   * the cell itself plus its 6 citizen neighbours. Green = hasMessage (an
+   * approved YES cell, or the sender). Red cells and not-yet-reached cells count
+   * 0. The news may pass onward from a community only when this reaches ≥3.
+   */
+  private communityGreenCount(cell: Cell): number {
+    let green = cell.hasMessage ? 1 : 0;
+    for (const nb of cell.coord.neighbors()) {
+      const nc = this.cells.get(nb.key());
+      if (nc && nc.status === 'citizen' && nc.hasMessage) green++;
+    }
+    return green;
+  }
+
+  /**
+   * True if `cell` belongs to at least one APPROVED community — a 7-member
+   * community (some news-holding centre + its 6 neighbours) that reached ≥3
+   * greens. The centre may be the cell itself OR any of its neighbours that
+   * already received the news. When a community passes 3-of-7, the news must
+   * reach ALL of that community's members' neighbours; so every member (the
+   * centre AND its 6 neighbours, red or green) is allowed to forward — not just
+   * the cells whose own personal community happens to reach 3.
+   */
+  private inApprovedCommunity(cell: Cell): boolean {
+    if (this.communityGreenCount(cell) >= 3) return true;
+    for (const nb of cell.coord.neighbors()) {
+      const m = this.cells.get(nb.key());
+      if (m && m.status === 'citizen' && (m.hasVoted || m.isSender) &&
+          this.communityGreenCount(m) >= 3) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * ADDITIVE parallel side-frontiers (does NOT touch processNextVote or the
    * voting rule). For each cell that has voted YES, we let it forward to its
    * own outward neighbours — but only once it is SAFE to promote it to a
@@ -250,10 +286,11 @@ export class Network {
     const ring1 = senderCoord.neighbors()
       .map(n => this.cells.get(n.key()))
       .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
-    // Wait for the first 7 to finish voting AND clear the ≥3 gate. If the
-    // opening ring failed, no parallel side may spawn — the message is dead.
+    // Wait for the first 7 to finish voting AND for the opening community
+    // (sender + 6) to clear the 3-of-7 green threshold. If it didn't, no
+    // parallel side may spawn — the message never started.
     if (ring1.length === 0 || !ring1.every(c => c.hasVoted)) return;
-    if (ring1.filter(c => c.vote === 'yes').length < 3) return;
+    if (this.communityGreenCount(senderCell) < 3) return;
 
     // Cells already claimed by some pending frontier — never enqueue twice.
     const queued = new Set<string>();
@@ -261,9 +298,9 @@ export class Network {
       for (const k of sp.targetKeys) queued.add(k);
     }
 
-    // Snapshot eligible sources first (anyone who has VOTED — yes OR no — and
-    // is not the sender and hasn't forwarded yet). A red cell forwards too, so
-    // its surrounding cells still get reached; only YES cells get promoted.
+    // Snapshot eligible sources first (anyone who has VOTED — yes OR no — and is
+    // not the sender and hasn't forwarded yet). A red cell forwards (delivers)
+    // too, so the message goes past it; only YES cells are promoted (below).
     const sources: Cell[] = [];
     for (const [, cell] of this.cells) {
       if (cell.eagerForwarded) continue;
@@ -285,6 +322,11 @@ export class Network {
       );
       if (!nearerSettled) continue; // try again next tick
 
+      // COMMUNITY GATE: this cell may forward only if it belongs to an APPROVED
+      // community (its own, or a neighbouring centre's, that reached 3-of-7).
+      // Not yet → retry later as more neighbours turn green (don't mark it done).
+      if (!this.inApprovedCommunity(cell)) continue;
+
       // Forward only OUTWARD (farther from sender) to still-untouched cells.
       const untouched: string[] = [];
       for (const n of neighbourCells) {
@@ -299,9 +341,9 @@ export class Network {
 
       if (untouched.length === 0) continue;
 
-      // Only YES cells get promoted to message holders (a red cell stays red and
-      // contributes 0 to its neighbours' counts). Promotion is safe here because
-      // every nearer neighbour has already voted, so it cannot change a sibling.
+      // Only YES cells are promoted to message holders (a red stays red and
+      // contributes 0 to neighbours' counts). Promotion is safe here because
+      // every nearer neighbour already voted, so it cannot change a sibling.
       if (cell.vote === 'yes' && !cell.hasMessage) {
         cell.hasMessage = true;
         cell.hasTick = true;
@@ -487,99 +529,92 @@ export class Network {
         );
       }
 
-      // FIRST-RING GATE: the opening ring (the sender's first 7) must collect
-      // at least 3 approvals to start propagating at all — otherwise the
-      // message stops here. Once it is under way, every voted cell (YES or NO)
-      // forwards, so a red cell never blocks its neighbours from being reached.
-      const firstRingFailed = currentSpread.targetRing === 1 && approvedCount < 3;
-      if (!firstRingFailed) {
-        // Hand the message to every cell that voted YES — each one now acts as
-        // a center that forwards the message onward. NO (red) cells are NOT
-        // promoted, so they never count as a confirmation for anyone.
-        for (const approvedKey of approvedInThisRing) {
-          const approvedCell = this.cells.get(approvedKey);
-          if (approvedCell && !approvedCell.hasMessage) {
-            approvedCell.hasMessage = true;
-            approvedCell.hasTick = true;
-            approvedCell.tickCount++;
-            approvedCell.receivedMessageFrom = currentSpread.fromKey;
-            approvedCell.showVoteUntil = this.day + 10;
+      // COMMUNITY VOTING GATE (3-of-7).
+      // Treat every news-holding cell together with its 6 neighbours as a
+      // 7-member community. First promote the cells that voted YES — they become
+      // the GREEN (message-holding) members. The news then spreads to a
+      // community's still-unreached OUTER neighbours ONLY IF that community has
+      // ≥3 green members. It does not matter whether the forwarding cell itself
+      // is red or green; what matters is the community's green count reaching 3.
+      for (const approvedKey of approvedInThisRing) {
+        const approvedCell = this.cells.get(approvedKey);
+        if (approvedCell && !approvedCell.hasMessage) {
+          approvedCell.hasMessage = true;
+          approvedCell.hasTick = true;
+          approvedCell.tickCount++;
+          approvedCell.receivedMessageFrom = currentSpread.fromKey;
+          approvedCell.showVoteUntil = this.day + 10;
+        }
+      }
+
+      const queued = new Set<string>();
+      for (const sp of this.pendingSpreads) {
+        for (const k of sp.targetKeys) queued.add(k);
+      }
+
+      const nextFrontier: string[] = [];
+      const seen = new Set<string>();
+      for (const vote of currentSpread.votes) {
+        const votedCell = this.cells.get(vote.nodeKey);
+        if (!votedCell) continue;
+        // Forward only if this cell belongs to an APPROVED community (its own,
+        // or a neighbouring centre's, that reached 3-of-7 green). That way the
+        // whole of an approved community delivers the news to ALL its neighbours.
+        if (!this.inApprovedCommunity(votedCell)) continue;
+        for (const nb of votedCell.coord.neighbors()) {
+          const nk = nb.key();
+          if (seen.has(nk) || queued.has(nk)) continue;
+          const nc = this.cells.get(nk);
+          if (!nc || nc.status !== 'citizen') continue;
+          if (nc.hasMessage || nc.hasVoted) continue;
+          seen.add(nk);
+          nextFrontier.push(nk);
+        }
+      }
+
+      const nextHop = currentSpread.targetRing + 1;
+
+      if (nextFrontier.length > 0) {
+        for (const nextCellKey of nextFrontier) {
+          const nextCell = this.cells.get(nextCellKey);
+          if (nextCell) {
+            nextCell.messageOriginKey = currentSpread.fromKey;
+            nextCell.hasVoted = false;
+            nextCell.vote = null;
           }
         }
 
-        // Build the next frontier from EVERY cell that voted this ring — YES
-        // AND NO. A red (NO) cell must still hand the message to its own
-        // surrounding cells so each of them gets its OWN chance to reach 3-of-7;
-        // a single NO must never carve a dead zone around itself. Each new cell
-        // still decides purely by its own 3-of-7 count (a red neighbour, having
-        // no message, simply contributes 0 — it does not block).
-        const queued = new Set<string>();
-        for (const sp of this.pendingSpreads) {
-          for (const k of sp.targetKeys) queued.add(k);
-        }
+        const nextSpread: PendingSpread = {
+          fromKey: currentSpread.fromKey,
+          targetRing: nextHop,
+          targetKeys: nextFrontier,
+          currentIndex: 0,
+          votes: [],
+          messageContent: currentSpread.messageContent
+        };
 
-        const nextFrontier: string[] = [];
-        const seen = new Set<string>();
-        for (const vote of currentSpread.votes) {
-          const votedCell = this.cells.get(vote.nodeKey);
-          if (!votedCell) continue;
-          for (const nb of votedCell.coord.neighbors()) {
-            const nk = nb.key();
-            if (seen.has(nk) || queued.has(nk)) continue;
-            const nc = this.cells.get(nk);
-            if (!nc || nc.status !== 'citizen') continue;
-            if (nc.hasMessage || nc.hasVoted) continue;
-            seen.add(nk);
-            nextFrontier.push(nk);
-          }
-        }
+        this.pendingSpreads.push(nextSpread);
 
-        const nextHop = currentSpread.targetRing + 1;
-
-        if (nextFrontier.length > 0) {
-          for (const nextCellKey of nextFrontier) {
-            const nextCell = this.cells.get(nextCellKey);
-            if (nextCell) {
-              nextCell.messageOriginKey = currentSpread.fromKey;
-              nextCell.hasVoted = false;
-              nextCell.vote = null;
-            }
-          }
-
-          const nextSpread: PendingSpread = {
-            fromKey: currentSpread.fromKey,
-            targetRing: nextHop,
-            targetKeys: nextFrontier,
-            currentIndex: 0,
-            votes: [],
-            messageContent: currentSpread.messageContent
-          };
-
-          this.pendingSpreads.push(nextSpread);
-
-          if (this.messageStatusCallback) {
-            this.messageStatusCallback(
-              `✨ Propagating from ${approvedCount} approving cell(s) → ${nextFrontier.length} new cell(s) (hop ${nextHop})`,
-              nextHop, approvedCount
-            );
-          }
-        } else {
-          if (this.messageStatusCallback) {
-            this.messageStatusCallback(
-              `🏆 Message fully propagated — no new cells left to reach (hop ${currentSpread.targetRing})`,
-              currentSpread.targetRing, approvedCount
-            );
-          }
-        }
-      } else {
         if (this.messageStatusCallback) {
           this.messageStatusCallback(
-            `🛑 Propagation STOPPED — only ${approvedCount}/${total} of the opening 7 approved (need ≥3 to start)`,
+            `✨ Communities reached 3-of-7 → spreading to ${nextFrontier.length} new cell(s) (hop ${nextHop})`,
+            nextHop, approvedCount
+          );
+        }
+      } else {
+        const firstRing = currentSpread.targetRing === 1;
+        if (this.messageStatusCallback) {
+          this.messageStatusCallback(
+            firstRing
+              ? `🛑 STOPPED — the opening community did not reach 3-of-7 (only ${approvedCount} green)`
+              : `🏆 Message fully propagated — no community cleared 3-of-7 onward (hop ${currentSpread.targetRing})`,
             currentSpread.targetRing, approvedCount
           );
         }
-        this.pendingSpreads = [];
-        this.isMessageActive = false;
+        if (firstRing) {
+          this.pendingSpreads = [];
+          this.isMessageActive = false;
+        }
       }
 
       this.pendingSpreads.shift();
