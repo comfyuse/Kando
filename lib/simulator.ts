@@ -53,6 +53,7 @@ export class Cell {
   currentRing: number = 0
   receivedMessageFrom: string | null = null
   pendingVoteCount: number = 0
+  eagerForwarded: boolean = false   // parallel: this cell already opened its own next-side frontier
 
   constructor(public coord: AxialCoord, status: CellStatus = 'temporary') {
     this.status = status
@@ -72,6 +73,7 @@ export class Cell {
     this.messageOriginKey = null;
     this.showVoteUntil = 0;
     this.pendingVoteCount = 0;
+    this.eagerForwarded = false;
   }
 }
 
@@ -82,6 +84,9 @@ export class Network {
   deathsToday = 0
   maxRing = 100
   firstRingBuilt = false
+  // Parallel sides: at most this many EXTRA frontiers advance per tick (on top
+  // of the original head frontier) — bounded so it stays watchable.
+  private static readonly PARALLEL_CAP = 3
   private pendingSpreads: PendingSpread[] = []
   private activeMessageSender: string | null = null
   private messageStatusCallback?: (status: string, ring: number, voteCount?: number) => void
@@ -191,9 +196,150 @@ export class Network {
   }
 
   processMessageTick(): void {
-    if (this.isMessageActive) {
-      this.processNextVote();
-      this.clearOldVotes();
+    if (!this.isMessageActive) return;
+
+    // 1) ORIGINAL behaviour — advance the head frontier by one cell.
+    //    processNextVote() and the 3-of-7 voting rule are UNCHANGED.
+    this.advanceHeadFrontier();
+
+    // 2) ADDITIVE — open parallel "side" frontiers. A cell that already voted
+    //    YES and whose nearer section has settled pushes the message onward to
+    //    its OWN next ring, so a side that finished can keep going while another
+    //    side is still voting. Gated to start only AFTER the first 7 voted.
+    this.spawnParallelFrontiers();
+
+    // 3) ADDITIVE — let a BOUNDED number of those side frontiers advance one
+    //    cell each this tick (watchable). processNextVote() reused via rotation.
+    this.advanceExtraFrontiers(Network.PARALLEL_CAP);
+
+    this.clearOldVotes();
+  }
+
+  /**
+   * Reuse processNextVote() UNCHANGED, but shield the other parallel frontiers
+   * from its dead-end branch: the original stops the WHOLE message when one
+   * frontier ends with zero approvals. With several sides alive at once, one
+   * dead-end side must not kill the rest — so if that happens while other
+   * frontiers are still queued, restore them and keep the message active.
+   */
+  private advanceHeadFrontier(): void {
+    const survivors = this.pendingSpreads.slice(1);
+    this.processNextVote();
+    if (!this.isMessageActive && this.pendingSpreads.length === 0 && survivors.length > 0) {
+      this.pendingSpreads = survivors;
+      this.isMessageActive = true;
+    }
+  }
+
+  /**
+   * ADDITIVE parallel side-frontiers (does NOT touch processNextVote or the
+   * voting rule). For each cell that has voted YES, we let it forward to its
+   * own outward neighbours — but only once it is SAFE to promote it to a
+   * message holder, i.e. every nearer/same-ring neighbour has already voted.
+   * That ordering guarantees promoting the cell can never inflate a
+   * not-yet-voted same-ring neighbour's confirmation count, so the voting
+   * outcome stays faithful to the original (no flooding the whole hive).
+   */
+  private spawnParallelFrontiers(): void {
+    if (!this.isMessageActive || !this.activeMessageSender) return;
+    const senderCell = this.cells.get(this.activeMessageSender);
+    if (!senderCell) return;
+    const senderCoord = senderCell.coord;
+
+    // GATE: only after the first ring (the first 7) has fully voted.
+    const ring1 = senderCoord.neighbors()
+      .map(n => this.cells.get(n.key()))
+      .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
+    if (ring1.length === 0 || !ring1.every(c => c.hasVoted)) return;
+
+    // Cells already claimed by some pending frontier — never enqueue twice.
+    const queued = new Set<string>();
+    for (const sp of this.pendingSpreads) {
+      for (const k of sp.targetKeys) queued.add(k);
+    }
+
+    // Snapshot eligible sources first (approved, non-sender, not yet forwarded).
+    const sources: Cell[] = [];
+    for (const [, cell] of this.cells) {
+      if (cell.eagerForwarded) continue;
+      if (cell.isSender) continue;
+      if (!(cell.hasVoted && cell.vote === 'yes')) continue;
+      sources.push(cell);
+    }
+
+    for (const cell of sources) {
+      const d = senderCoord.distanceTo(cell.coord);
+      const neighbourCells = cell.coord.neighbors()
+        .map(n => this.cells.get(n.key()))
+        .filter((c): c is Cell => c !== undefined && c.status === 'citizen');
+
+      // ANTI-FLOOD GATE: every nearer/same-ring neighbour must have already
+      // voted. Until then, promoting this cell could change a sibling's vote.
+      const nearerSettled = neighbourCells.every(n =>
+        senderCoord.distanceTo(n.coord) > d || n.hasVoted
+      );
+      if (!nearerSettled) continue; // try again next tick
+
+      // Forward only OUTWARD (farther from sender) to still-untouched cells.
+      const untouched: string[] = [];
+      for (const n of neighbourCells) {
+        if (senderCoord.distanceTo(n.coord) <= d) continue;
+        const nk = n.coord.key();
+        if (queued.has(nk) || n.hasMessage || n.hasVoted) continue;
+        untouched.push(nk);
+        queued.add(nk);
+      }
+
+      cell.eagerForwarded = true; // settled → mark once
+
+      if (untouched.length === 0) continue;
+
+      // Safe to promote now (all nearer neighbours already voted).
+      if (!cell.hasMessage) {
+        cell.hasMessage = true;
+        cell.hasTick = true;
+        cell.tickCount++;
+        cell.receivedMessageFrom = this.activeMessageSender;
+        cell.showVoteUntil = this.day + 10;
+      }
+      for (const nk of untouched) {
+        const nc = this.cells.get(nk)!;
+        nc.messageOriginKey = this.activeMessageSender;
+        nc.hasVoted = false;
+        nc.vote = null;
+      }
+
+      this.pendingSpreads.push({
+        fromKey: cell.coord.key(),
+        targetRing: d + 1,
+        targetKeys: untouched,
+        currentIndex: 0,
+        votes: [],
+        messageContent: `Parallel side from ${cell.coord.key()}`,
+      });
+
+      if (this.messageStatusCallback) {
+        this.messageStatusCallback(
+          `⚡ Parallel side from ${cell.coord.key()} → ${untouched.length} cell(s) (hop ${d + 1})`,
+          d + 1, 0
+        );
+      }
+    }
+  }
+
+  /**
+   * Advance up to `cap` of the NON-head frontiers by one cell each this tick,
+   * rotating the queue (head to back) and reusing advanceHeadFrontier() — so
+   * a few sides move per tick (bounded / watchable).
+   */
+  private advanceExtraFrontiers(cap: number): void {
+    let steps = Math.min(cap, this.pendingSpreads.length - 1);
+    let guard = steps * 2 + 2; // safety against pathological queue churn
+    while (steps > 0 && this.pendingSpreads.length > 1 && guard-- > 0) {
+      const head = this.pendingSpreads.shift();
+      if (head) this.pendingSpreads.push(head);
+      this.advanceHeadFrontier();
+      steps--;
     }
   }
 
@@ -211,6 +357,7 @@ export class Network {
       cell.receivedMessageFrom = null;
       cell.messageOriginKey = null;
       cell.pendingVoteCount = 0;
+      cell.eagerForwarded = false;
     }
     this.pendingSpreads = [];
     this.pendingApprovals.clear();
