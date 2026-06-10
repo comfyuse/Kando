@@ -541,3 +541,104 @@ input[type="button"] {
   scrollbar-width: none;
 }
 }
+/* ============================================================
+   Simulator glassmorphic controls (buttons + adjust bar)
+   ============================================================ */
+.sim-glass {
+  background: linear-gradient(135deg, rgba(34, 44, 58, 0.55), rgba(13, 17, 23, 0.6));
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.sim-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02));
+  color: #c9d4e0;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease,
+    border-color 0.18s ease, color 0.18s ease;
+}
+.sim-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(46, 168, 138, 0.55);
+  color: #eaf3ee;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 6px 18px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(46, 168, 138, 0.2);
+}
+.sim-btn:active { transform: translateY(0) scale(0.98); }
+
+.sim-btn--accent {
+  background: linear-gradient(135deg, rgba(63, 184, 146, 0.95), rgba(46, 168, 138, 0.82));
+  border-color: rgba(120, 230, 195, 0.6);
+  color: #04140f;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 4px 16px rgba(46, 168, 138, 0.4);
+}
+.sim-btn--accent:hover {
+  color: #02100b;
+  border-color: rgba(150, 240, 210, 0.8);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 8px 24px rgba(46, 168, 138, 0.6);
+}
+
+.sim-btn--danger {
+  background: linear-gradient(135deg, rgba(239, 83, 80, 0.95), rgba(211, 47, 47, 0.82));
+  border-color: rgba(255, 140, 138, 0.55);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 4px 16px rgba(211, 47, 47, 0.42);
+}
+.sim-btn--danger:hover {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 8px 24px rgba(211, 47, 47, 0.6);
+}
+
+/* Adjust bar — green → amber → red gradient (more red = more NO votes) */
+.sim-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2ea88a 0%, #f5c451 52%, #ef5350 100%);
+  outline: none;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.sim-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #dbe6ee 58%, #a7b4c0);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(255, 255, 255, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.sim-range::-webkit-slider-thumb:hover {
+  transform: scale(1.14);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.6), 0 0 0 6px rgba(239, 83, 80, 0.22);
+}
+.sim-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #dbe6ee 58%, #a7b4c0);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+.sim-range::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}

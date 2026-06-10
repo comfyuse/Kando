@@ -84,6 +84,11 @@ export class Network {
   deathsToday = 0
   maxRing = 100
   firstRingBuilt = false
+  // Probability that a fresh, undecided neighbour casts a NO (negative) vote.
+  // Higher → more reds. Adjustable from 0.5 to 1.0 via the simulator slider.
+  // At 1.0 no fresh YES ever occurs, so a community can never reach 3-of-7 and
+  // the message stops propagating entirely.
+  negativeVoteRate = 0.5
   // Parallel sides: at most this many EXTRA frontiers advance per tick (on top
   // of the original head frontier) — bounded so it stays watchable.
   private static readonly PARALLEL_CAP = 3
@@ -104,6 +109,11 @@ export class Network {
 
   setMessageStatusCallback(callback: (status: string, ring: number, voteCount?: number) => void) {
     this.messageStatusCallback = callback
+  }
+
+  /** Set the negative-vote (red) probability for fresh voters. Clamped 0.5–1.0. */
+  setNegativeVoteRate(rate: number) {
+    this.negativeVoteRate = Math.max(0.5, Math.min(1.0, rate))
   }
 
   getCell(coord: AxialCoord): Cell | undefined {
@@ -652,7 +662,7 @@ export class Network {
           standing++;
           confirmations++;
         } else if (!neighbor.hasVoted) {
-          if (Math.random() < 0.60) { fresh++; confirmations++; }
+          if (Math.random() >= this.negativeVoteRate) { fresh++; confirmations++; }
         }
         // a neighbour that already voted NO → no confirmation
       }

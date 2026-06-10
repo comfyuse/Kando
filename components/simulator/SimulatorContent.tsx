@@ -27,8 +27,16 @@ export default function SimulatorContent() {
     totalDeaths: 0
   });
   const [showMetricsBox, setShowMetricsBox] = useState(true);
+  // Negative-vote (red) probability — adjustable 50%–100% via the slider.
+  const [negRate, setNegRate] = useState(50);
   const timer = useRef<NodeJS.Timeout | null>(null);
   const sceneRef = useRef<{ render: () => void }>(null);
+
+  // Keep the network's negative-vote rate in sync with the slider (re-applied
+  // here so it also survives a RESET that builds a fresh Network).
+  useEffect(() => {
+    netRef.current.setNegativeVoteRate(negRate / 100);
+  }, [negRate, tick]);
 
   const updateStats = useCallback(() => {
     setStats(netRef.current.stats());
@@ -57,6 +65,14 @@ export default function SimulatorContent() {
 
     return () => window.removeEventListener('resize', checkMobile);
   }, [updateStats]);
+
+  // On small screens start with the side panels collapsed to keep things tidy.
+  useEffect(() => {
+    if (isMobile) {
+      setShowMetricsBox(false);
+      setShowRuleBox(false);
+    }
+  }, [isMobile]);
 
   useEffect(() => {
     netRef.current.setMessageStatusCallback((status: string, ring: number, votes?: number) => {
@@ -118,13 +134,14 @@ export default function SimulatorContent() {
     setAuto(false);
     setMode('growth');
     netRef.current = new Network();
+    netRef.current.setNegativeVoteRate(negRate / 100);
     setTick(0);
     sceneRef.current?.render();
     updateStats();
     setMessageStatus("");
     setCurrentRing(0);
     setVoteCount(0);
-  }, [updateStats]);
+  }, [updateStats, negRate]);
 
   const switchToGrowth = useCallback(() => {
     setMode('growth');
@@ -150,6 +167,21 @@ export default function SimulatorContent() {
     updateStats();
   }, [updateStats]);
 
+  // Clear the current message and inject a brand-new one into the hive
+  // (without touching the grown network).
+  const newMessage = useCallback(() => {
+    setMode('message');
+    setAuto(false);
+    if (timer.current) clearInterval(timer.current);
+    netRef.current.clearAllMessagesAndVotes();
+    netRef.current.startMessagePropagation();
+    setMessageStatus("");
+    setCurrentRing(0);
+    setVoteCount(0);
+    sceneRef.current?.render();
+    updateStats();
+  }, [updateStats]);
+
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   return (
@@ -163,7 +195,7 @@ export default function SimulatorContent() {
       {/* Message Status - فقط در حالت Message Mode */}
       {mode === 'message' && messageStatus && (
         <div className={`absolute z-20 bg-[#0d1117]/95 backdrop-blur-sm rounded-lg px-3 py-2 md:px-4 md:py-3 border-l-4 border-[#2ea88a] shadow-xl max-w-[90%] md:max-w-md ${
-          isMobile ? 'bottom-20 left-2 right-2' : 'bottom-24 left-4'
+          isMobile ? 'bottom-40 left-2 right-2' : 'bottom-24 left-4'
         }`}>
           <div className="flex flex-col md:flex-row md:items-center gap-2">
             <div className="flex items-center gap-2">
@@ -191,7 +223,7 @@ export default function SimulatorContent() {
       {/* NEW: Metrics Box */}
       {showMetricsBox && (
         <div className={`absolute z-20 bg-[#0d1117]/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-[#30363d] shadow-lg ${
-          isMobile ? 'top-24 left-2 right-2' : 'top-44 left-3'
+          isMobile ? 'top-[4.5rem] left-2' : 'top-44 left-3'
         }`}>
           <button
             onClick={() => setShowMetricsBox(false)}
@@ -238,7 +270,7 @@ export default function SimulatorContent() {
         <button
           onClick={() => setShowMetricsBox(true)}
           className={`absolute z-20 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-full p-2 shadow-lg transition-all duration-200 ${
-            isMobile ? 'top-24 left-2' : 'top-44 left-3'
+            isMobile ? 'top-[4.5rem] left-2' : 'top-44 left-3'
           }`}
           aria-label="Show metrics"
         >
@@ -251,7 +283,7 @@ export default function SimulatorContent() {
       {/* Rule Box */}
       {showRuleBox && (
         <div className={`absolute z-20 bg-[#0d1117]/90 backdrop-blur-sm rounded-lg px-2 py-1.5 md:px-3 md:py-2 border border-[#30363d] shadow-lg ${
-          isMobile ? 'bottom-20 right-2' : 'bottom-4 right-4'
+          isMobile ? 'top-[4.5rem] right-2' : 'bottom-4 right-4'
         }`}>
           <button
             onClick={() => setShowRuleBox(false)}
@@ -280,7 +312,7 @@ export default function SimulatorContent() {
         <button
           onClick={() => setShowRuleBox(true)}
           className={`absolute z-20 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-full p-1.5 md:p-2 shadow-lg transition-all duration-200 ${
-            isMobile ? 'bottom-20 right-2' : 'bottom-4 right-4'
+            isMobile ? 'top-[4.5rem] right-2' : 'bottom-4 right-4'
           }`}
           aria-label="Show rules"
         >
@@ -290,56 +322,81 @@ export default function SimulatorContent() {
         </button>
       )}
       
-      {/* دکمه‌ها */}
-      <div className={`absolute z-20 pointer-events-auto flex gap-2 md:gap-3 ${
-        isMobile 
-          ? 'left-1/2 -translate-x-1/2 bottom-3 flex-row' 
-          : 'bottom-3 left-1/2 -translate-x-1/2'
+      {/* Glass control dock — adjust bar + buttons */}
+      <div className={`absolute z-20 pointer-events-auto sim-glass ${
+        isMobile
+          ? 'left-2 right-2 bottom-3 px-3 py-2.5'
+          : 'bottom-4 left-1/2 -translate-x-1/2 px-4 py-3'
       }`}>
-        <button 
-          onClick={switchToGrowth} 
-          className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
-            mode === 'growth' 
-              ? 'bg-[#2ea88a] hover:bg-[#3fb892] text-white' 
-              : 'bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] text-[#8b949e]'
-          }`}
-        >
-          🌱 Growth
-        </button>
-        
-        <button 
-          onClick={switchToMessage} 
-          className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
-            mode === 'message' 
-              ? 'bg-[#2ea88a] hover:bg-[#3fb892] text-white' 
-              : 'bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] text-[#8b949e]'
-          }`}
-        >
-          📨 Message
-        </button>
-        
-        <button 
-          onClick={mode === 'message' ? stepMessage : stepGrowth} 
-          className="px-3 md:px-5 py-1.5 md:py-2 bg-[#2ea88a] hover:bg-[#3fb892] text-white rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg"
-        >
-          STEP
-        </button>
-        
-        <button 
-          onClick={toggleAuto} 
-          className={`px-3 md:px-5 py-1.5 md:py-2 rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg ${
-            auto ? 'bg-red-600 hover:bg-red-700' : 'bg-[#2ea88a] hover:bg-[#3fb892]'
-          } text-white`}
-        >
-          {auto ? 'STOP' : 'AUTO'}
-        </button>
-        
-        <button 
-          onClick={resetSimulation} 
-          className="px-3 md:px-5 py-1.5 md:py-2 bg-[#161b22] border border-[#30363d] hover:border-[#2ea88a] hover:text-[#2ea88a] rounded-lg text-xs md:text-sm font-medium transition-all shadow-lg"
-        >
-          RESET
-        </button>
+        {/* Adjust bar */}
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1.5 text-[10px] md:text-[11px] font-semibold tracking-wide text-[#a7b6c6] whitespace-nowrap">
+            <span className="inline-block w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,83,80,0.85)]" />
+            NO votes
+          </span>
+          <input
+            type="range"
+            min={50}
+            max={100}
+            step={1}
+            value={negRate}
+            onChange={(e) => setNegRate(Number(e.target.value))}
+            className="sim-range flex-1 md:min-w-[18rem]"
+            aria-label="Negative vote probability"
+          />
+          <span className="w-10 text-right text-xs md:text-sm font-bold tabular-nums text-red-400">
+            {negRate}%
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className="my-2.5 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+
+        {/* Buttons — 3-col grid on mobile, inline row on desktop */}
+        <div className="grid grid-cols-3 gap-1.5 md:flex md:flex-wrap md:justify-center md:gap-2.5">
+          <button
+            onClick={switchToGrowth}
+            className={`sim-btn w-full md:w-auto px-2 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm ${mode === 'growth' ? 'sim-btn--accent' : ''}`}
+          >
+            🌱 Growth
+          </button>
+
+          <button
+            onClick={switchToMessage}
+            className={`sim-btn w-full md:w-auto px-2 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm ${mode === 'message' ? 'sim-btn--accent' : ''}`}
+          >
+            📨 Message
+          </button>
+
+          <button
+            onClick={newMessage}
+            title="Clear current message and send a new one to the hive"
+            className="sim-btn w-full md:w-auto px-2 md:px-4 py-1.5 md:py-2 text-[11px] md:text-sm"
+          >
+            🔄 New Msg
+          </button>
+
+          <button
+            onClick={mode === 'message' ? stepMessage : stepGrowth}
+            className="sim-btn sim-btn--accent w-full md:w-auto px-2 md:px-5 py-1.5 md:py-2 text-[11px] md:text-sm"
+          >
+            STEP
+          </button>
+
+          <button
+            onClick={toggleAuto}
+            className={`sim-btn w-full md:w-auto px-2 md:px-5 py-1.5 md:py-2 text-[11px] md:text-sm ${auto ? 'sim-btn--danger' : 'sim-btn--accent'}`}
+          >
+            {auto ? '⏹ STOP' : '▶ AUTO'}
+          </button>
+
+          <button
+            onClick={resetSimulation}
+            className="sim-btn w-full md:w-auto px-2 md:px-5 py-1.5 md:py-2 text-[11px] md:text-sm"
+          >
+            RESET
+          </button>
+        </div>
       </div>
 
       {/* Stats Box */}
