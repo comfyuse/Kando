@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,27 +28,9 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// ── Hexagonal cell positions ordered ring by ring ─────────────────────────────
 // Per the KANDO whitepaper: a member's identity IS their hexagonal coordinate.
-
-var hexCellOrder = [][2]int{
-	// Ring 0
-	{0, 0},
-	// Ring 1
-	{1, 0}, {1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1},
-	// Ring 2
-	{2, 0}, {2, -1}, {2, -2}, {1, -2}, {0, -2}, {-1, -1},
-	{-2, 0}, {-2, 1}, {-2, 2}, {-1, 2}, {0, 2}, {1, 1},
-	// Ring 3
-	{3, 0}, {3, -1}, {3, -2}, {3, -3}, {2, -3}, {1, -3},
-	{0, -3}, {-1, -2}, {-2, -1}, {-3, 0}, {-3, 1}, {-3, 2},
-	{-3, 3}, {-2, 3}, {-1, 3}, {0, 3}, {1, 2}, {2, 1},
-	// Ring 4
-	{4, 0}, {4, -1}, {4, -2}, {4, -3}, {4, -4}, {3, -4},
-	{2, -4}, {1, -4}, {0, -4}, {-1, -3}, {-2, -2}, {-3, -1},
-	{-4, 0}, {-4, 1}, {-4, 2}, {-4, 3}, {-4, 4}, {-3, 4},
-	{-2, 4}, {-1, 4}, {0, 4}, {1, 3}, {2, 2}, {3, 1},
-}
+// The hive starts with ONE permanent cell — the queen at (0,0). Every other
+// cell is claimed exclusively through an invite link issued by a citizen.
 
 // cellDHTId derives a deterministic 160-bit hex ID from hexagonal coordinates.
 // SHA-256 of "kando-cell:q,r", first 20 bytes as hex — same algorithm as the
@@ -69,7 +52,53 @@ type Peer struct {
 	PublicKey string    `json:"publicKey,omitempty"`
 	CellQ     int       `json:"cellQ"`
 	CellR     int       `json:"cellR"`
+	HasCell   bool      `json:"hasCell"` // guests (no invite yet) hold no cell
+	Status    string    `json:"status"`  // guest | reserved | candidate | citizen (derived from occupancy)
 	LastSeen  time.Time `json:"lastSeen"`
+}
+
+// Invite reserves an empty coordinate for whoever opens the invite link.
+type Invite struct {
+	Token    string    `json:"token"`
+	From     string    `json:"from"`     // inviter peerId
+	FromName string    `json:"fromName"` // inviter display name
+	CellQ    int       `json:"cellQ"`
+	CellR    int       `json:"cellR"`
+	Created  time.Time `json:"created"`
+}
+
+// ── Citizenship stages (hambalidan protocol) ──────────────────────────────────
+// A node's stage is derived purely from cell OCCUPANCY:
+//   RESERVED  — occupies a cell (an accepted invitation; not active yet)
+//   CANDIDATE — all 6 direct neighbour cells are occupied (any stage)
+//   CITIZEN   — each of those 6 neighbours itself has 6 occupied neighbours
+// The queen cell (0,0) is a CITIZEN from genesis.
+
+var hexDirs = [6][2]int{{1, 0}, {1, -1}, {0, -1}, {-1, 0}, {-1, 1}, {0, 1}}
+
+// cellStage computes the stage of the node at (q,r). Caller must hold
+// peerManager.mu (read) — occupancy is read from cellIndex.
+func cellStage(q, r int) string {
+	if q == 0 && r == 0 {
+		return "citizen"
+	}
+	full := func(q, r int) bool {
+		for _, d := range hexDirs {
+			if _, ok := peerManager.cellIndex[cellKey(q+d[0], r+d[1])]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	if !full(q, r) {
+		return "reserved"
+	}
+	for _, d := range hexDirs {
+		if !full(q+d[0], r+d[1]) {
+			return "candidate"
+		}
+	}
+	return "citizen"
 }
 
 type Message struct {
@@ -95,6 +124,8 @@ type MessageRequest struct {
 type PeerManager struct {
 	peers     map[string]Peer
 	cellIndex map[string]string
+	invites   map[string]Invite // token → pending invite
+	queenID   string            // peerId of the queen — set once, kept forever
 	messages  []Message
 	msgIndex  map[string]struct{} // dedup by message ID
 	mu        sync.RWMutex
@@ -103,6 +134,7 @@ type PeerManager struct {
 var peerManager = &PeerManager{
 	peers:     make(map[string]Peer),
 	cellIndex: make(map[string]string),
+	invites:   make(map[string]Invite),
 	messages:  []Message{},
 	msgIndex:  make(map[string]struct{}),
 }
@@ -114,63 +146,83 @@ var (
 	requestBroadcast = make(chan MessageRequest, 64)
 )
 
-// Pre-registered citizens — seeded into the first cells of the hexagonal grid.
-var preRegisteredUsers = []struct {
-	name  string
-	cellI int
-}{
-	{"Shaya", 0},
-	{"Ali", 1},
-	{"Sahand", 2},
-	{"Danial", 3},
-	{"Sadra", 4},
-	{"Farbod", 5},
-	{"Arman", 6},
-	{"Dorsa", 7},
-	{"Bahram", 8},
-	{"Farzam", 9},
-	{"Behnam", 10},
-}
-
 func generatePeerID(name string) string { return name + "-cando-peer" }
 
-func assignNextCell() (int, int, bool) {
-	peerManager.mu.RLock()
-	defer peerManager.mu.RUnlock()
-	for _, cell := range hexCellOrder {
-		key := cellKey(cell[0], cell[1])
-		if _, taken := peerManager.cellIndex[key]; !taken {
-			return cell[0], cell[1], true
-		}
+func randToken() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
-	return 0, 0, false
+	return hex.EncodeToString(buf)
 }
 
 // ── libp2p node (global) ──────────────────────────────────────────────────────
 
 var p2pNode *p2p.Node
 
-// ── Init ──────────────────────────────────────────────────────────────────────
+// ── Persistence ───────────────────────────────────────────────────────────────
+// The hive is permanent: the queen's claim on (0,0) and every accepted invite
+// survive restarts via a JSON state file next to the binary.
 
-func init() {
-	for _, u := range preRegisteredUsers {
-		cell := hexCellOrder[u.cellI]
-		q, r := cell[0], cell[1]
-		peerID := generatePeerID(u.name)
-		dhtId := cellDHTId(q, r)
-		key := cellKey(q, r)
+var stateFile = func() string {
+	if f := os.Getenv("STATE_FILE"); f != "" {
+		return f
+	}
+	return "kando-state.json"
+}()
 
-		peer := Peer{
-			ID:       peerID,
-			Name:     u.name,
-			Address:  "virtual",
-			DHTId:    dhtId,
-			CellQ:    q,
-			CellR:    r,
-			LastSeen: time.Now(),
+type persistedState struct {
+	QueenID string            `json:"queenId"`
+	Peers   map[string]Peer   `json:"peers"`
+	Invites map[string]Invite `json:"invites"`
+}
+
+func loadState() {
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return
+	}
+	var st persistedState
+	if err := json.Unmarshal(data, &st); err != nil {
+		log.Printf("⚠️ could not parse %s: %v", stateFile, err)
+		return
+	}
+	peerManager.mu.Lock()
+	defer peerManager.mu.Unlock()
+	if st.Peers != nil {
+		peerManager.peers = st.Peers
+	}
+	if st.Invites != nil {
+		peerManager.invites = st.Invites
+	}
+	peerManager.queenID = st.QueenID
+	for id, p := range peerManager.peers {
+		if p.HasCell {
+			peerManager.cellIndex[cellKey(p.CellQ, p.CellR)] = id
 		}
-		peerManager.peers[peerID] = peer
-		peerManager.cellIndex[key] = peerID
+	}
+	log.Printf("💾 restored %d member(s), %d pending invite(s) from %s",
+		len(peerManager.peers), len(peerManager.invites), stateFile)
+}
+
+// saveStateLocked persists the hive. Caller must hold peerManager.mu (write).
+func saveStateLocked() {
+	st := persistedState{
+		QueenID: peerManager.queenID,
+		Peers:   peerManager.peers,
+		Invites: peerManager.invites,
+	}
+	data, err := json.MarshalIndent(st, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := stateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		log.Printf("⚠️ persist failed: %v", err)
+		return
+	}
+	if err := os.Rename(tmp, stateFile); err != nil {
+		log.Printf("⚠️ persist failed: %v", err)
 	}
 }
 
@@ -181,10 +233,26 @@ func writeJSON(w http.ResponseWriter, v interface{}) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// snapshotPeers returns all peers with their derived citizenship stage filled in.
+func snapshotPeers() []Peer {
+	peerManager.mu.RLock()
+	defer peerManager.mu.RUnlock()
+	peers := make([]Peer, 0, len(peerManager.peers))
+	for _, p := range peerManager.peers {
+		if p.HasCell {
+			p.Status = cellStage(p.CellQ, p.CellR)
+		} else {
+			p.Status = "guest"
+		}
+		peers = append(peers, p)
+	}
+	return peers
+}
+
 // announceToP2P publishes a member join/update announcement to the libp2p
 // GossipSub network so all connected backend nodes update their local stores.
 func announceToP2P(peer Peer) {
-	if p2pNode == nil {
+	if p2pNode == nil || !peer.HasCell {
 		return
 	}
 	if err := p2pNode.AnnounceMember(p2p.MemberAnnounce{
@@ -241,89 +309,231 @@ func addMessage(msg Message) bool {
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
 
+// registrationResponse builds the standard register/accept payload.
+// Caller must hold peerManager.mu (read or write).
+func registrationResponse(p Peer) map[string]interface{} {
+	stage := "guest"
+	if p.HasCell {
+		stage = cellStage(p.CellQ, p.CellR)
+	}
+	return map[string]interface{}{
+		"peerId":  p.ID,
+		"dhtId":   p.DHTId,
+		"name":    p.Name,
+		"cellQ":   p.CellQ,
+		"cellR":   p.CellR,
+		"hasCell": p.HasCell,
+		"isQueen": p.ID == peerManager.queenID,
+		"stage":   stage,
+		"status":  "registered",
+	}
+}
+
+// handleRegister: the FIRST member ever becomes the queen and permanently owns
+// cell (0,0) with its Kademlia DHT id. Everyone after that registers as a
+// cell-less GUEST — claiming a cell requires accepting an invite link.
 func handleRegister(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		Name      string `json:"name"`
 		PublicKey string `json:"publicKey"`
 	}
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Name == "" {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
 	peerID := generatePeerID(body.Name)
 
-	peerManager.mu.RLock()
-	existing, exists := peerManager.peers[peerID]
-	peerManager.mu.RUnlock()
+	peerManager.mu.Lock()
 
-	if exists {
+	if existing, exists := peerManager.peers[peerID]; exists {
 		if body.PublicKey != "" {
-			peerManager.mu.Lock()
 			existing.PublicKey = body.PublicKey
-			existing.LastSeen = time.Now()
-			peerManager.peers[peerID] = existing
-			peerManager.mu.Unlock()
-			go announceToP2P(existing)
 		}
-		writeJSON(w, map[string]interface{}{
-			"peerId": existing.ID,
-			"dhtId":  existing.DHTId,
-			"name":   existing.Name,
-			"cellQ":  existing.CellQ,
-			"cellR":  existing.CellR,
-			"status": "registered",
-		})
+		existing.LastSeen = time.Now()
+		peerManager.peers[peerID] = existing
+		resp := registrationResponse(existing)
+		saveStateLocked()
+		peerManager.mu.Unlock()
+		go announceToP2P(existing)
+		writeJSON(w, resp)
 		return
 	}
-
-	cq, cr, ok := assignNextCell()
-	if !ok {
-		http.Error(w, "network full", http.StatusServiceUnavailable)
-		return
-	}
-
-	dhtId := cellDHTId(cq, cr)
-	ckey := cellKey(cq, cr)
 
 	peer := Peer{
 		ID:        peerID,
 		Name:      body.Name,
 		Address:   req.RemoteAddr,
-		DHTId:     dhtId,
 		PublicKey: body.PublicKey,
-		CellQ:     cq,
-		CellR:     cr,
 		LastSeen:  time.Now(),
 	}
 
-	peerManager.mu.Lock()
+	if peerManager.queenID == "" {
+		// 👑 Genesis: this member is the queen — cell (0,0) is hers forever.
+		peer.CellQ, peer.CellR = 0, 0
+		peer.HasCell = true
+		peer.DHTId = cellDHTId(0, 0)
+		peerManager.queenID = peerID
+		peerManager.cellIndex[cellKey(0, 0)] = peerID
+		log.Printf("👑 Queen registered: %s owns cell (0,0) dhtId=%s", body.Name, peer.DHTId[:8])
+	} else {
+		log.Printf("👤 Guest registered: %s (no cell — needs an invite)", body.Name)
+	}
+
 	peerManager.peers[peerID] = peer
-	peerManager.cellIndex[ckey] = peerID
+	resp := registrationResponse(peer)
+	saveStateLocked()
+	peerManager.mu.Unlock()
+
+	if peer.HasCell {
+		go announceToP2P(peer)
+	}
+	writeJSON(w, resp)
+}
+
+// ── Invites ───────────────────────────────────────────────────────────────────
+
+// handleCreateInvite: a CITIZEN reserves an empty coordinate for an invitee and
+// gets back a one-time token to embed in the invite link. Per the whitepaper
+// there is NO adjacency condition — any citizen may invite to any empty cell.
+func handleCreateInvite(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		Q    int    `json:"q"`
+		R    int    `json:"r"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	peerManager.mu.Lock()
+	defer peerManager.mu.Unlock()
+
+	inviter, ok := peerManager.peers[body.From]
+	if !ok || !inviter.HasCell {
+		http.Error(w, "inviter not found or holds no cell", http.StatusForbidden)
+		return
+	}
+	if cellStage(inviter.CellQ, inviter.CellR) != "citizen" {
+		http.Error(w, "only citizens can invite", http.StatusForbidden)
+		return
+	}
+	key := cellKey(body.Q, body.R)
+	if _, taken := peerManager.cellIndex[key]; taken {
+		http.Error(w, "cell already occupied", http.StatusConflict)
+		return
+	}
+	for _, inv := range peerManager.invites {
+		if inv.CellQ == body.Q && inv.CellR == body.R {
+			// Idempotent: re-issue the existing pending invite for this cell
+			writeJSON(w, inv)
+			return
+		}
+	}
+
+	invite := Invite{
+		Token:    randToken(),
+		From:     inviter.ID,
+		FromName: inviter.Name,
+		CellQ:    body.Q,
+		CellR:    body.R,
+		Created:  time.Now(),
+	}
+	peerManager.invites[invite.Token] = invite
+	saveStateLocked()
+
+	log.Printf("✉️  Invite created by %s for cell (%d,%d) token=%s…", inviter.Name, body.Q, body.R, invite.Token[:8])
+	writeJSON(w, invite)
+}
+
+func handleListInvites(w http.ResponseWriter, r *http.Request) {
+	peerManager.mu.RLock()
+	invites := make([]Invite, 0, len(peerManager.invites))
+	for _, inv := range peerManager.invites {
+		invites = append(invites, inv)
+	}
+	peerManager.mu.RUnlock()
+	writeJSON(w, invites)
+}
+
+func handleInviteInfo(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	peerManager.mu.RLock()
+	inv, ok := peerManager.invites[token]
+	peerManager.mu.RUnlock()
+	if !ok {
+		http.Error(w, "invite not found or already used", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, inv)
+}
+
+// handleAcceptInvite: the invitee claims the reserved coordinate. The cell
+// becomes theirs (RESERVED stage) and gets its deterministic Kademlia DHT id.
+func handleAcceptInvite(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Token     string `json:"token"`
+		Name      string `json:"name"`
+		PublicKey string `json:"publicKey"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	peerManager.mu.Lock()
+
+	inv, ok := peerManager.invites[body.Token]
+	if !ok {
+		peerManager.mu.Unlock()
+		http.Error(w, "invite not found or already used", http.StatusNotFound)
+		return
+	}
+
+	peerID := generatePeerID(body.Name)
+	key := cellKey(inv.CellQ, inv.CellR)
+
+	if existing, exists := peerManager.peers[peerID]; exists && existing.HasCell {
+		peerManager.mu.Unlock()
+		http.Error(w, "this name already holds a cell", http.StatusConflict)
+		return
+	}
+	if _, taken := peerManager.cellIndex[key]; taken {
+		delete(peerManager.invites, body.Token)
+		saveStateLocked()
+		peerManager.mu.Unlock()
+		http.Error(w, "cell already occupied", http.StatusConflict)
+		return
+	}
+
+	peer := Peer{
+		ID:        peerID,
+		Name:      body.Name,
+		Address:   r.RemoteAddr,
+		PublicKey: body.PublicKey,
+		DHTId:     cellDHTId(inv.CellQ, inv.CellR),
+		CellQ:     inv.CellQ,
+		CellR:     inv.CellR,
+		HasCell:   true,
+		LastSeen:  time.Now(),
+	}
+	peerManager.peers[peerID] = peer
+	peerManager.cellIndex[key] = peerID
+	delete(peerManager.invites, body.Token)
+	resp := registrationResponse(peer)
+	saveStateLocked()
 	peerManager.mu.Unlock()
 
 	go announceToP2P(peer)
+	broadcastPeerList()
 
-	log.Printf("✅ Registered %s at cell (%d,%d) dhtId=%s", body.Name, cq, cr, dhtId[:8])
-
-	writeJSON(w, map[string]interface{}{
-		"peerId": peerID,
-		"dhtId":  dhtId,
-		"name":   body.Name,
-		"cellQ":  cq,
-		"cellR":  cr,
-		"status": "registered",
-	})
+	log.Printf("🐝 %s accepted invite → cell (%d,%d) dhtId=%s", body.Name, inv.CellQ, inv.CellR, peer.DHTId[:8])
+	writeJSON(w, resp)
 }
 
 func handleGetMembers(w http.ResponseWriter, r *http.Request) {
-	peerManager.mu.RLock()
-	members := make([]Peer, 0, len(peerManager.peers))
-	for _, p := range peerManager.peers {
-		members = append(members, p)
-	}
-	peerManager.mu.RUnlock()
-	writeJSON(w, members)
+	writeJSON(w, snapshotPeers())
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -389,12 +599,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func broadcastPeerList() {
-	peerManager.mu.RLock()
-	peers := make([]Peer, 0, len(peerManager.peers))
-	for _, p := range peerManager.peers {
-		peers = append(peers, p)
-	}
-	peerManager.mu.RUnlock()
+	peers := snapshotPeers()
 
 	clientsMu.RLock()
 	for client := range clients {
@@ -462,13 +667,7 @@ func handleDenyRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleGetPeers(w http.ResponseWriter, r *http.Request) {
-	peerManager.mu.RLock()
-	peers := make([]Peer, 0, len(peerManager.peers))
-	for _, p := range peerManager.peers {
-		peers = append(peers, p)
-	}
-	peerManager.mu.RUnlock()
-	writeJSON(w, peers)
+	writeJSON(w, snapshotPeers())
 }
 
 func handleGetMessages(w http.ResponseWriter, r *http.Request) {
@@ -507,6 +706,7 @@ func handleFindPeer(w http.ResponseWriter, r *http.Request) {
 	for _, p := range peerManager.peers {
 		if p.Name == name {
 			cp := p
+			cp.Status = cellStage(cp.CellQ, cp.CellR)
 			found = &cp
 			break
 		}
@@ -535,6 +735,7 @@ func handlePeerByHash(w http.ResponseWriter, r *http.Request) {
 	for _, p := range peerManager.peers {
 		if p.DHTId == hash {
 			cp := p
+			cp.Status = cellStage(cp.CellQ, cp.CellR)
 			found = &cp
 			break
 		}
@@ -593,6 +794,9 @@ func handleP2PInfo(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	ctx := context.Background()
+
+	// Restore the permanent hive (queen + members + pending invites) from disk.
+	loadState()
 
 	// ── HTTP port ─────────────────────────────────────────────────────────────
 	httpPort := os.Getenv("PORT")
@@ -662,6 +866,7 @@ func main() {
 				DHTId:     ma.DHTId,
 				CellQ:     ma.CellQ,
 				CellR:     ma.CellR,
+				HasCell:   true, // only cell holders are announced over P2P
 				Address:   "remote-p2p",
 				PublicKey: ma.PubKey,
 				LastSeen:  ma.Seen,
@@ -726,6 +931,10 @@ func main() {
 	r := mux.NewRouter()
 
 	r.HandleFunc("/api/register", handleRegister).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/invite", handleCreateInvite).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/invites", handleListInvites).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/invite/info", handleInviteInfo).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/invite/accept", handleAcceptInvite).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/peers", handleGetPeers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/members", handleGetMembers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/messages", handleGetMessages).Methods("GET", "OPTIONS")
@@ -747,7 +956,14 @@ func main() {
 	})
 
 	log.Printf("🚀 KANDO P2P Backend   HTTP=:%s   P2P=%d", httpPort, p2pPort)
-	log.Printf("👥 %d citizens seeded into hexagonal grid", len(peerManager.peers))
+	peerManager.mu.RLock()
+	if peerManager.queenID == "" {
+		log.Printf("👑 Hive is empty — the first member to register becomes the queen at (0,0)")
+	} else {
+		log.Printf("👑 Queen: %s   members: %d   pending invites: %d",
+			peerManager.queenID, len(peerManager.peers), len(peerManager.invites))
+	}
+	peerManager.mu.RUnlock()
 
 	if err := http.ListenAndServe(":"+httpPort, corsHandler.Handler(r)); err != nil {
 		log.Fatal("server failed:", err)

@@ -22,7 +22,14 @@ export class AxialCoord {
   }
 }
 
-export type CellStatus = 'temporary' | 'candidate' | 'citizen' | 'dead'
+export type CellStatus = 'temporary' | 'reserved' | 'candidate' | 'citizen' | 'dead'
+
+// 'temporary' — classic growth model (the /simulator page).
+// 'reserved'  — MVP hambalidan protocol (the /chat page): an invited user has
+//               accepted a coordinate but is not active yet (RESERVED stage).
+
+/** Which growth rules drive Network.tick(). Message propagation is shared. */
+export type GrowthModel = 'classic' | 'mvp'
 export type VoteType = 'yes' | 'no' | null
 
 interface Vote {
@@ -60,7 +67,7 @@ export class Cell {
   }
 
   isActive(): boolean {
-    return this.status === 'temporary' || this.status === 'candidate' || this.status === 'citizen'
+    return this.status === 'temporary' || this.status === 'reserved' || this.status === 'candidate' || this.status === 'citizen'
   }
 
   isAlive(): boolean {
@@ -103,7 +110,8 @@ export class Network {
   private historicalBirths: number[] = []
   private historicalDeaths: number[] = []
 
-  constructor() {
+  constructor(public growthModel: GrowthModel = 'classic') {
+    // The queen node — a full CITIZEN from genesis, registered at (0,0).
     this.cells.set('0,0', new Cell(new AxialCoord(0, 0), 'citizen'))
   }
 
@@ -172,6 +180,101 @@ export class Network {
         }
       }
     }
+  }
+
+  // ── MVP growth model (hambalidan protocol: RESERVED → CANDIDATE → CITIZEN) ──
+
+  /** How many of a coordinate's 6 direct slots are occupied by ANY live node
+   *  (reserved, candidate or citizen — mere existence counts, per the MVP). */
+  private occupiedNeighborCount(coord: AxialCoord): number {
+    return coord.neighbors().filter(n => {
+      const c = this.cells.get(n.key())
+      return !!c && c.isAlive()
+    }).length
+  }
+
+  /**
+   * MVP promotion rules — they depend only on cell OCCUPANCY, never on the
+   * neighbours' own stage:
+   *   RESERVED  → CANDIDATE  when all 6 direct neighbour slots are occupied.
+   *   CANDIDATE → CITIZEN    when each of those 6 neighbours itself has all
+   *                          6 of ITS neighbour slots occupied (second ring
+   *                          around the node is complete).
+   */
+  applyMvpPromotions(): void {
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const [, cell] of this.cells) {
+        if (cell.status === 'reserved' && this.occupiedNeighborCount(cell.coord) === 6) {
+          cell.status = 'candidate'
+          changed = true
+        }
+      }
+      for (const [, cell] of this.cells) {
+        if (cell.status !== 'candidate') continue
+        const matured = cell.coord.neighbors().every(n => {
+          const c = this.cells.get(n.key())
+          return !!c && c.isAlive() && this.occupiedNeighborCount(n) === 6
+        })
+        if (matured) {
+          cell.status = 'citizen'
+          this.birthsToday++
+          changed = true
+        }
+      }
+    }
+  }
+
+  /**
+   * Place a real network member (from the Go backend / DHT) at their cell.
+   * New cells start RESERVED — call applyMvpPromotions() afterwards to let
+   * occupancy promote them. The queen cell is a citizen from genesis.
+   */
+  seedMember(q: number, r: number): Cell {
+    const coord = new AxialCoord(q, r)
+    let cell = this.cells.get(coord.key())
+    if (!cell) {
+      cell = new Cell(coord, q === 0 && r === 0 ? 'citizen' : 'reserved')
+      this.cells.set(coord.key(), cell)
+    }
+    return cell
+  }
+
+  /**
+   * One MVP growth day: a citizen invites a new user to an empty coordinate,
+   * which becomes RESERVED for them. The protocol puts NO adjacency condition
+   * on reservations — any citizen may reserve any empty cell — but rational
+   * citizens grow the comb compactly, so the simulation invites adjacent to
+   * the existing hive, preferring the innermost open ring. That produces the
+   * natural layer-by-layer spiral growth described in the whitepaper.
+   */
+  private mvpTick(): void {
+    const hasCitizen = [...this.cells.values()].some(c => c.status === 'citizen')
+    if (hasCitizen) {
+      const empty: AxialCoord[] = []
+      const seen = new Set<string>()
+      for (const [, cell] of this.cells) {
+        if (!cell.isAlive()) continue
+        for (const nb of cell.coord.neighbors()) {
+          const k = nb.key()
+          if (seen.has(k) || this.cells.has(k) || !this.isWithinBounds(nb)) continue
+          seen.add(k)
+          empty.push(nb)
+        }
+      }
+      if (empty.length > 0) {
+        const minRing = Math.min(...empty.map(c => c.ring()))
+        const inner = empty.filter(c => c.ring() === minRing)
+        // Mostly fill the innermost ring; occasionally reserve farther out.
+        const pool = Math.random() < 0.85 ? inner : empty
+        const chosen = pool[Math.floor(Math.random() * pool.length)]
+        this.cells.set(chosen.key(), new Cell(chosen, 'reserved'))
+      }
+    }
+    this.applyMvpPromotions()
+    this.clearOldVotes()
+    this.updateHistoricalData()
   }
 
   private fillDeadGaps(): void {
@@ -705,6 +808,12 @@ export class Network {
     this.birthsToday = 0;
     this.deathsToday = 0;
 
+    if (this.growthModel === 'mvp') {
+      // MVP: growth pauses while a message is propagating (per the PDF flow).
+      if (!this.isMessageActive) this.mvpTick();
+      return;
+    }
+
     if (!this.isMessageActive) {
       if (!this.firstRingBuilt) {
         const ring1 = [
@@ -806,12 +915,14 @@ export class Network {
     const citizens = alive.filter(c => c.status === 'citizen');
     const candidates = alive.filter(c => c.status === 'candidate');
     const temps = alive.filter(c => c.status === 'temporary');
+    const reserved = alive.filter(c => c.status === 'reserved');
     return {
       day: this.day,
       alive: alive.length,
       citizens: citizens.length,
       candidates: candidates.length,
       temporary: temps.length,
+      reserved: reserved.length,
       dead: all.filter(c => c.status === 'dead').length,
       maxRing: alive.length > 0 ? Math.max(...alive.map(c => c.coord.ring())) : 0,
     };

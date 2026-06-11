@@ -84,6 +84,11 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageI
         fill: isDark ? 'rgba(248, 81, 73, 0.3)' : 'rgba(220, 38, 38, 0.25)',
         stroke: isDark ? 'rgba(248, 81, 73, 0.65)' : 'rgba(220, 38, 38, 0.55)',
       },
+      // RESERVED renders red — same as classic temporary (در حال ساخت)
+      reserved: {
+        fill: isDark ? 'rgba(248, 81, 73, 0.3)' : 'rgba(220, 38, 38, 0.25)',
+        stroke: isDark ? 'rgba(248, 81, 73, 0.65)' : 'rgba(220, 38, 38, 0.55)',
+      },
       dead: {
         fill: isDark ? 'rgba(33, 38, 45, 0.6)' : 'rgba(0, 0, 0, 0.2)',
         stroke: isDark ? 'rgba(100, 100, 100, 0.4)' : 'rgba(0, 0, 0, 0.25)',
@@ -226,6 +231,24 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageI
     })
     observer.observe(document.documentElement, { attributes: true })
     return () => observer.disconnect()
+  }, [render])
+
+  // Redraw when the canvas is resized — otherwise the bitmap keeps its old
+  // dimensions and the w-full/h-full CSS stretches it into a smeared image
+  // until the next interaction. Coalesced to one redraw per frame.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => render())
+    })
+    observer.observe(canvas)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [render])
 
   useEffect(() => { render() }, [render])

@@ -6,13 +6,14 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { Network, Cell, AxialCoord } from '@/lib/simulator';
 import { p2pClient, ChatMessage as P2PMessage, Peer } from '@/lib/p2p-client';
-import { dhtClient } from '@/lib/dht-client';
+import { dhtClient, NetworkMember, Invite } from '@/lib/dht-client';
 
 // Components
 import ProfilePanel from './components/ProfilePanel';
 import ChatPanel from './components/ChatPanel';
 import MessageRequests from './components/MessageRequests';
 import FriendsList from './components/FriendsList';
+import InvitePanel from './components/InvitePanel';
 
 // Data
 import { citizenNames, personProfiles, generatePeerHash, UserProfile, MessageRequest } from './data/profiles';
@@ -85,14 +86,19 @@ const getProfileForCell = (cell: Cell): UserProfile => {
 };
 
 export default function ChatPage() {
-  const netRef = useRef(new Network());
+  // The hive shows REAL members only: the queen owns (0,0) forever; every
+  // other cell is claimed by accepting an invite link. Stages follow the
+  // hambalidan protocol (RESERVED → CANDIDATE → CITIZEN), derived from
+  // occupancy — the same rules the Go backend computes.
+  const netRef = useRef(new Network('mvp'));
   const [tick, setTick] = useState(0);
   const [stats, setStats] = useState(() => netRef.current.stats());
-  const [auto, setAuto] = useState(false);
+  const [members, setMembers] = useState<NetworkMember[]>([]);
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [isQueen, setIsQueen] = useState(false);
   const [selectedCell, setSelectedCell] = useState<Cell | null>(null);
   const [selectedCurve, setSelectedCurve] = useState<CurveSelection | null>(null);
   const [selectedUserProfile, setSelectedUserProfile] = useState<UserProfile | null>(null);
-  const timer = useRef<NodeJS.Timeout | null>(null);
   const sceneRef = useRef<{ render: () => void }>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -152,6 +158,77 @@ export default function ChatPage() {
     }
   }, []);
 
+  // Rebuild the hive from the backend's member list. Each cell-holding member
+  // occupies their permanent DHT cell (q,r); stages (RESERVED → CANDIDATE →
+  // CITIZEN) are recomputed from occupancy — the same rules the backend uses.
+  const rebuildHive = useCallback((memberList: NetworkMember[]) => {
+    const net = new Network('mvp');
+    for (const m of memberList) {
+      if (!m.hasCell) continue;
+      const cell = net.seedMember(m.cellQ, m.cellR);
+      const isQueenCell = m.cellQ === 0 && m.cellR === 0;
+      const known = personProfiles[m.name];
+      userProfiles.set(cell.coord.key(), {
+        ...(known ?? {
+          name: m.name,
+          avatar: isQueenCell ? '👑' : '🐝',
+          role: isQueenCell ? 'Queen — Genesis Node' : 'KANDO Member',
+          level: 1,
+          joinDate: new Date().toLocaleDateString(),
+          messagesSent: 0,
+          trustScore: 100,
+          bio: isQueenCell
+            ? 'Permanent owner of cell (0,0) — the hive grows from here'
+            : 'Registered member of the KANDO network',
+          interests: ['KANDO', 'P2P'],
+          status: 'online' as const,
+          location: 'KANDO Hive',
+          email: `${m.name.toLowerCase()}@kando.network`,
+        }),
+        peerId: m.id,
+        peerHash: m.dhtId,
+        isConnected: true,
+      });
+    }
+    net.applyMvpPromotions();
+    netRef.current = net;
+    setMembers(memberList);
+    setStats(net.stats());
+    setTick(t => t + 1);
+  }, []);
+
+  // Pull members + pending invites from the backend and redraw the hive.
+  const refreshHive = useCallback(async () => {
+    try {
+      const [memberList, inviteList] = await Promise.all([
+        dhtClient.getMembers(),
+        dhtClient.getInvites(),
+      ]);
+      rebuildHive(memberList);
+      setInvites(inviteList);
+    } catch (e) {
+      console.warn('Hive refresh failed (backend offline?):', e);
+    }
+  }, [rebuildHive]);
+
+  // Keep the hive in sync — new members may accept invites at any moment.
+  useEffect(() => {
+    const id = setInterval(() => { refreshHive(); }, 8000);
+    return () => clearInterval(id);
+  }, [refreshHive]);
+
+  // Queen action: reserve an empty neighbour cell and get an invite link.
+  const handleCreateInvite = useCallback(async (q: number, r: number): Promise<Invite | null> => {
+    try {
+      const invite = await dhtClient.createInvite(q, r);
+      setInvites(prev => prev.some(i => i.token === invite.token) ? prev : [...prev, invite]);
+      return invite;
+    } catch (e) {
+      alert(`Could not create invite: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }, []);
+
   // Register user when component mounts
   useEffect(() => {
     const registerUser = async () => {
@@ -165,12 +242,16 @@ export default function ChatPage() {
           setBackendStatus('offline');
         }
 
+        // Invite-link landing: /chat?invite=<token> claims the reserved cell
+        const inviteToken = new URLSearchParams(window.location.search).get('invite');
+
         let selectedIdentity = localStorage.getItem('kando_selected_identity');
 
         if (!selectedIdentity) {
-          const identityOptions = [...citizenNames, 'KANDO_User'];
           selectedIdentity = prompt(
-            `Select your identity for this session:\n\nAvailable: ${identityOptions.join(', ')}\n\nEnter your name:`,
+            inviteToken
+              ? '🐝 You are invited to the KANDO hive!\n\nEnter your name to claim your cell:'
+              : 'Enter your name for this session:',
             'KANDO_User'
           );
           if (selectedIdentity && selectedIdentity.trim()) {
@@ -182,24 +263,49 @@ export default function ChatPage() {
 
         setMyIdentity(selectedIdentity);
 
-        console.log('👤 Registering user:', selectedIdentity);
-        const registration = await p2pClient.register(selectedIdentity);
-        setMyPeerId(registration.peerId);
-        setMyPeerName(registration.name);
-
-        // Register with DHT — this gives us the REAL Kademlia hash
+        // DHT registration first — the FIRST member ever becomes the QUEEN and
+        // owns cell (0,0) with its Kademlia DHT id forever. With an invite
+        // token, the invitee claims the reserved cell instead.
         try {
-          const dhtResult = await dhtClient.register(selectedIdentity);
-          // Use the real DHT Kademlia hash as the user's identity hash
-          setMyPeerHash(dhtResult.dhtId);
-          console.log(`🔑 DHT identity: ${dhtResult.dhtId}`);
+          let dhtResult = null;
+          if (inviteToken) {
+            const info = await dhtClient.getInviteInfo(inviteToken);
+            if (info) {
+              try {
+                dhtResult = await dhtClient.acceptInvite(inviteToken, selectedIdentity);
+                alert(`🐝 Welcome to the hive!\n\nCell (${dhtResult.cellQ},${dhtResult.cellR}) is now reserved for you.\nDHT ID: ${dhtResult.dhtId}`);
+              } catch (e) {
+                console.warn('Invite accept failed:', e);
+                alert(`Could not accept the invite: ${e instanceof Error ? e.message : e}`);
+              }
+            } else {
+              alert('This invite link is invalid or was already used.');
+            }
+          }
+          if (!dhtResult) {
+            dhtResult = await dhtClient.register(selectedIdentity);
+          }
+          setMyPeerHash(dhtResult.dhtId || generatePeerHash(selectedIdentity));
+          setIsQueen(dhtResult.isQueen);
+          if (dhtResult.isQueen) {
+            console.log('👑 You are the QUEEN — cell (0,0) is permanently yours');
+          }
+          console.log(`🔑 DHT identity: ${dhtResult.dhtId || '(guest — no cell yet)'} stage=${dhtResult.stage}`);
         } catch (e) {
           console.warn('DHT register failed (backend offline?):', e);
           // Fallback only if DHT backend is unreachable
           setMyPeerHash(generatePeerHash(selectedIdentity));
         }
 
+        console.log('👤 Registering user:', selectedIdentity);
+        const registration = await p2pClient.register(selectedIdentity);
+        setMyPeerId(registration.peerId);
+        setMyPeerName(registration.name);
+
         p2pClient.connect(registration.peerId, registration.name);
+
+        // Draw the real hive (queen + accepted members + pending invites)
+        await refreshHive();
 
         const messages = await p2pClient.getMessages();
         setReceivedMessages(messages);
@@ -285,33 +391,6 @@ export default function ChatPage() {
     setStats(netRef.current.stats());
   }, [tick]);
 
-  const step = useCallback(() => {
-    if (netRef.current.day >= 60) {
-      if (auto) {
-        setAuto(false);
-        if (timer.current) clearInterval(timer.current);
-      }
-      return;
-    }
-
-    netRef.current.tick();
-    setTick(t => t + 1);
-    sceneRef.current?.render();
-  }, [auto]);
-
-  const toggleAuto = useCallback(() => {
-    if (auto) {
-      if (timer.current) clearInterval(timer.current);
-      setAuto(false);
-    } else {
-      if (netRef.current.day >= 60) return;
-      setAuto(true);
-      timer.current = setInterval(() => step(), 200);
-    }
-  }, [auto, step]);
-
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
-
   const handleCurveClick = useCallback((f: Cell, t: Cell) => {
     setSelectedCell(null);
     setSelectedUserProfile(null);
@@ -320,11 +399,15 @@ export default function ChatPage() {
 
   const handleCellClick = useCallback((cell: Cell) => {
     setSelectedCurve(null);
-    if (cell.isAlive()) {
-      setSelectedCell(cell);
-      const profile = getProfileForCell(cell);
-      setSelectedUserProfile(profile);
-    }
+    // People in cells removed for now — clicking a cell shows nothing.
+    // The cell stays visible in the network; no profile panel opens.
+    // To re-add people later, restore the lines below:
+    // if (cell.isAlive()) {
+    //   setSelectedCell(cell);
+    //   const profile = getProfileForCell(cell);
+    //   setSelectedUserProfile(profile);
+    // }
+    void cell;
   }, []);
 
   const handleSendP2PMessage = async (content: string) => {
@@ -492,8 +575,6 @@ export default function ChatPage() {
     });
   }, []);
 
-  const isGrowthStopped = stats.day >= 60;
-
   return (
     <main className="w-full h-screen bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f] overflow-hidden relative">
       {/* Animated Background */}
@@ -647,14 +728,12 @@ export default function ChatPage() {
         <div className="flex justify-center">
           <div className="glass-modern px-2 md:px-4 py-1.5 md:py-2 rounded-xl md:rounded-2xl flex gap-1 md:gap-2 overflow-x-auto scrollbar-hide max-w-[calc(100vw-1rem)] md:max-w-none">
             {[
-              { label: 'DAY', value: stats.day, color: 'text-[var(--jade)]' },
-              { label: 'ALIVE', value: stats.alive, color: 'text-emerald-400' },
+              { label: 'MEMBERS', value: stats.alive, color: 'text-[var(--jade)]' },
               { label: 'CIT', value: stats.citizens, color: 'text-emerald-400' },
               { label: 'CAND', value: stats.candidates, color: 'text-sky-400' },
-              { label: 'TEMP', value: stats.temporary, color: 'text-amber-400' },
-              { label: 'DEAD', value: stats.dead, color: 'text-red-400' },
-              { label: 'RING', value: stats.maxRing, color: 'text-purple-400' },
-              { label: 'STATUS', value: isGrowthStopped ? 'STOP' : 'GROW', color: isGrowthStopped ? 'text-red-400' : 'text-emerald-400' }
+              { label: 'RES', value: stats.reserved, color: 'text-red-400' },
+              { label: 'INVITES', value: invites.length, color: 'text-amber-400' },
+              { label: 'RING', value: stats.maxRing, color: 'text-purple-400' }
             ].map((stat) => (
               <div key={stat.label} className="stat-card-modern px-1.5 md:px-3 py-1 md:py-1.5 text-center min-w-[40px] md:min-w-[60px]">
                 <div className="text-[7px] md:text-[8px] font-semibold text-[var(--text-muted)] tracking-wider uppercase">{stat.label}</div>
@@ -873,28 +952,19 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Control Buttons */}
-      <div className="absolute bottom-3 md:bottom-6 left-1/2 -translate-x-1/2 z-20 pointer-events-auto animate-fadeIn" style={{ animationDelay: '0.2s' }}>
-        <div className="glass-modern flex gap-1 md:gap-2 p-1 rounded-xl md:rounded-2xl">
-          <button onClick={step} className={`px-3 md:px-5 py-1.5 md:py-2 text-[10px] md:text-xs font-medium rounded-lg md:rounded-xl transition-all duration-200 ${
-            isGrowthStopped
-              ? 'bg-white/5 text-[var(--text-muted)] cursor-not-allowed opacity-50'
-              : 'bg-white/5 hover:bg-white/10 text-[var(--text-primary)] hover:text-[var(--jade)]'
-          }`} disabled={isGrowthStopped}>
-            STEP
-          </button>
-          <button onClick={toggleAuto} className={`px-3 md:px-5 py-1.5 md:py-2 text-[10px] md:text-xs font-medium rounded-lg md:rounded-xl transition-all duration-200 ${
-            auto
-              ? 'bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white shadow-lg shadow-[var(--jade)]/20'
-              : 'bg-white/5 hover:bg-white/10 text-[var(--text-primary)]'
-          }`}>
-            {auto ? 'STOP' : 'AUTO'}
-          </button>
-          <button onClick={() => window.location.reload()} className="px-3 md:px-5 py-1.5 md:py-2 text-[10px] md:text-xs font-medium rounded-lg md:rounded-xl bg-white/5 hover:bg-white/10 text-[var(--text-primary)] transition-all duration-200">
-            RESET
-          </button>
+      {/* Queen's Invite Panel — send invite links for the 6 neighbour cells */}
+      {isQueen && (
+        <div className={`z-20 pointer-events-auto animate-fadeIn ${
+          isMobile ? 'absolute top-32 left-2 right-2' : 'absolute top-36 left-4'
+        }`} style={{ animationDelay: '0.2s' }}>
+          <InvitePanel
+            members={members}
+            invites={invites}
+            onCreateInvite={handleCreateInvite}
+            isMobile={isMobile}
+          />
         </div>
-      </div>
+      )}
     </main>
   );
 }

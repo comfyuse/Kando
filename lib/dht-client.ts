@@ -31,6 +31,18 @@ export interface RegisterResult {
   publicKey: string;
   cellQ: number;   // hexagonal coordinate q
   cellR: number;   // hexagonal coordinate r
+  hasCell: boolean; // guests hold no cell until they accept an invite
+  isQueen: boolean; // permanent owner of cell (0,0)
+  stage: string;    // guest | reserved | candidate | citizen
+}
+
+export interface Invite {
+  token: string;
+  from: string;      // inviter peerId
+  fromName: string;
+  cellQ: number;
+  cellR: number;
+  created?: string;
 }
 
 export interface NetworkMember {
@@ -40,6 +52,10 @@ export interface NetworkMember {
   publicKey?: string;
   cellQ: number;
   cellR: number;
+  // Citizenship stage derived from cell occupancy (hambalidan protocol):
+  // 'guest' | 'reserved' | 'candidate' | 'citizen'
+  status?: string;
+  hasCell?: boolean;
   address?: string;
 }
 
@@ -172,6 +188,65 @@ class DHTClient {
       publicKey,
       cellQ: data.cellQ ?? 0,
       cellR: data.cellR ?? 0,
+      hasCell: data.hasCell ?? false,
+      isQueen: data.isQueen ?? false,
+      stage: data.stage ?? 'guest',
+    };
+  }
+
+  // ── Invites (hambalidan protocol) ─────────────────────────────────────────
+
+  /** A citizen reserves an empty coordinate and gets a one-time invite token. */
+  async createInvite(q: number, r: number): Promise<Invite> {
+    if (!this.peerId) throw new Error('Not registered');
+    const res = await fetch(`${BASE_URL}/api/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: this.peerId, q, r }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  }
+
+  /** All pending (not yet accepted) invites. */
+  async getInvites(): Promise<Invite[]> {
+    try {
+      const res = await fetch(`${BASE_URL}/api/invites`);
+      return res.ok ? res.json() : [];
+    } catch { return []; }
+  }
+
+  /** Look up an invite token (for the invite-link landing). */
+  async getInviteInfo(token: string): Promise<Invite | null> {
+    try {
+      const res = await fetch(`${BASE_URL}/api/invite/info?token=${encodeURIComponent(token)}`);
+      return res.ok ? res.json() : null;
+    } catch { return null; }
+  }
+
+  /** Accept an invite: claim the reserved cell and its Kademlia DHT id. */
+  async acceptInvite(token: string, name: string): Promise<RegisterResult> {
+    const publicKey = await this.initCrypto();
+    const res = await fetch(`${BASE_URL}/api/invite/accept`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, name, publicKey }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    this.peerId = data.peerId;
+    this.peerName = name;
+    this.dhtId = data.dhtId;
+    return {
+      peerId: data.peerId,
+      dhtId: data.dhtId,
+      name,
+      publicKey,
+      cellQ: data.cellQ ?? 0,
+      cellR: data.cellR ?? 0,
+      hasCell: data.hasCell ?? true,
+      isQueen: data.isQueen ?? false,
+      stage: data.stage ?? 'reserved',
     };
   }
 
@@ -369,6 +444,8 @@ class DHTClient {
       return list.map((p: any) => ({
         id: p.id, name: p.name, dhtId: p.dhtId || '',
         publicKey: p.publicKey, cellQ: p.cellQ ?? 0, cellR: p.cellR ?? 0,
+        status: p.status || 'guest',
+        hasCell: p.hasCell ?? false,
       }));
     } catch { return []; }
   }

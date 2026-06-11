@@ -254,63 +254,76 @@ The interactive simulator lets you visualize KANDO's complex contagion propagati
 
 ---
 
-## 📊 Protocol Flowcharts
-
-### 1 — 3-Approval Propagation Rule
+## 📊 Protocol Flowchart
 
 ```mermaid
 flowchart TD
-    Start([Start: Node creates content]) --> A[Content shared with 6 direct neighbors]
-    A --> B[Each neighbor may send an approval]
-    B --> C{≥3 approvals collected<br/>within timeout?}
-    C -->|Yes| D[Content advances to next ring<br/>distance +1]
-    D --> E{Next ring exists?}
-    E -->|Yes| A
-    E -->|No| F([End: Propagation complete])
-    C -->|No| G[Timeout expires]
-    G --> H([End: Propagation halted])
-```
+    A([User opens /simulator]) --> B["new Network() — one citizen at 0,0"]
+    B --> C{"Choose mode"}
 
-### 2 — Co‑eclosion Citizenship Protocol (RESERVED → CANDIDATE → CITIZEN)
+    C -->|"🌱 Growth"| GA["tick() — per STEP / AUTO"]
+    C -->|"📨 Message · 🔄 New Msg"| MA["startMessagePropagation()"]
 
-```mermaid
-flowchart TD
-    Start([Start: Node invited by a citizen]) --> A[Node becomes RESERVED]
-    A --> B{All six neighbor<br/>positions occupied?}
-    B -->|No| W1[Wait and retry]
-    W1 --> B
-    B -->|Yes| C[Node becomes CANDIDATE]
-    C --> D[For each of the six neighbors,<br/>check if they have ≥6 neighbors]
-    D --> E{All six neighbors<br/>each have ≥6 neighbors?}
-    E -->|No| W2[Wait and retry]
-    W2 --> D
-    E -->|Yes| F[Node becomes CITIZEN<br/>Issue non‑transferable certificate]
-    F --> G([End: Citizen active in network])
-```
+    %% ---------------- GROWTH ----------------
+    subgraph G["GROWTH — build the hive"]
+        direction TB
+        GA --> GB["add a TEMPORARY cell at an empty neighbour slot"]
+        GB --> GC["applyPromotions(): temporary → candidate → citizen"]
+        GC --> GD["killReds() · fillDeadGaps() · reviveDead()"]
+        GD --> GE["updateHistoricalData(): churn / net-growth / viral"]
+    end
+    GE --> RENDER["Scene2D draws the hive on canvas"]
 
-### 3 — Local Voting & Relocation
+    %% ---------------- MESSAGE START ----------------
+    MA --> MB["startRandomMessage(): pick weighted-random sender<br/>(a citizen that has all 6 neighbours)"]
+    MB --> MC["sender = GOLD · deliver to ring-1 (its 6 neighbours)"]
+    MC --> FR{"opening community ≥ 3 GREEN?<br/>(sender + 6)"}
+    FR -->|"no"| STOP["🛑 message never starts — not approved"]
+    FR -->|"yes"| T
 
-```mermaid
-flowchart TD
-    Start([Start: Citizen inactive for 30 days]) --> A[Status becomes INACTIVE]
-    A --> B[Living neighbors may initiate a vote]
-    B --> C{Vote successful?<br/>≥4 of 6 neighbors}
+    %% ---------------- MESSAGE TICK ----------------
+    subgraph M["MESSAGE — processMessageTick() per STEP / AUTO"]
+        direction TB
+        T["processMessageTick()"] --> T1["advanceHeadFrontier() → processNextVote() — 1 cell"]
+        T1 --> T2["spawnParallelFrontiers() — open parallel sides"]
+        T2 --> T3["advanceExtraFrontiers(cap = 3) — move several sides at once"]
+        T3 --> T4["clearOldVotes()"]
+    end
+    T4 --> TD{"still active AND<br/>pending frontiers?"}
+    TD -->|"yes"| T
+    TD -->|"no"| RENDER
 
-    C -->|No| D[Wait another 30 days]
-    D --> E{New vote initiated<br/>within 30 days?}
-    E -->|No| F["Node becomes DEAD<br/>(certificate remains as history)"]
-    E -->|Yes| C
+    %% ---------------- VOTING (3 of 7) ----------------
+    T1 -. for each cell .-> VA
+    subgraph V["Vote of ONE cell — 3-of-7 rule"]
+        direction TB
+        VA["confirmations = standing + fresh"] --> VB["standing = neighbours already GREEN (hasMessage)"]
+        VB --> VC["fresh = undecided neighbours,<br/>YES with probability (1 − negativeVoteRate)"]
+        VC --> VD{"confirmations ≥ 3 ?"}
+        VD -->|"yes"| VE["GREEN ✓ approved → becomes hasMessage"]
+        VD -->|"no"| VF["RED ✗ rejected (counts 0 for others)"]
+    end
 
-    C -->|Yes| G[Node becomes DISPLACED<br/>Coordinates freed]
-    G --> H[DISPLACED node requests relocation<br/>to an empty coordinate]
-    H --> I{Required approvals met?}
+    %% ---------------- COMMUNITY GATE ----------------
+    T1 -. when a frontier finishes voting .-> CA
+    subgraph CG["Community gate — who forwards the news"]
+        direction TB
+        CA["community = cell + its 6 neighbours (7 members)"] --> CB{"≥ 3 GREEN in this cell's community<br/>OR in a neighbouring centre's?"}
+        CB -->|"yes"| CC["✅ news reaches ALL unreached neighbours<br/>(reds forward too — the message passes around them)"]
+        CB -->|"no"| CD["⛔ news does NOT pass from here"]
+    end
+    CC --> SP["queue next frontier → keep spreading (parallel)"]
+    CD --> SX["🛑 this side stops"]
 
-    I -->|Yes| J[Node moves to new coordinate<br/>Status becomes CITIZEN again]
-    I -->|No| K[Relocation fails<br/>node remains DISPLACED]
+    %% ---------------- SLIDER ----------------
+    SL["🎚️ NO-votes slider 50% → 100% (negativeVoteRate)"] -. tunes .-> VC
+    SL -. at 100% .-> SLX["no fresh YES → no community reaches 3 → no propagation"]
 
-    J --> End1([End: Citizen active])
-    F --> End2([End: Dead])
-    K --> End3([End: Displaced])
+    %% ---------------- LEGEND ----------------
+    subgraph LEG["Cell legend"]
+        direction LR
+        L1["🟡 sender"] --- L2["🟢 approved ✓"] --- L3["🔴 rejected ✗"] --- L4["✉️ delivered, not voted"] --- L5["citizen / candidate / temporary / dead"]
+    end
 ```
 
 ---
