@@ -1,672 +1,527 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, ReactNode } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { motion } from 'framer-motion';
-import Navbar from '@/components/Navbar';
+import { motion, AnimatePresence, useScroll, useTransform, useMotionValue, useSpring, Variants } from 'framer-motion';
+
+/* Minimal-color brand: pure black, white + grayscale UI.
+   The only color comes from the holographic KANDO logo. */
+
+const LOGO = '/kando-mark.png';
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+const revealItem: Variants = {
+  hidden: { opacity: 0, y: 44, filter: 'blur(8px)' },
+  show: { opacity: 1, y: 0, filter: 'blur(0px)', transition: { duration: 0.7, ease: EASE } },
+};
+const staggerParent: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.1 } } };
+
+function Reveal({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <motion.div className={className} variants={revealItem} initial="hidden" whileInView="show" viewport={{ once: true, margin: '-80px' }}>
+      {children}
+    </motion.div>
+  );
+}
+function Stagger({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <motion.div className={className} variants={staggerParent} initial="hidden" whileInView="show" viewport={{ once: true, margin: '-80px' }}>
+      {children}
+    </motion.div>
+  );
+}
+
+const CARD = 'rounded-2xl bg-white/[0.03] border border-white/10 backdrop-blur-sm';
 
 export default function Home() {
-  const [isMobile, setIsMobile] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [email, setEmail] = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    
-    return () => {
-      window.removeEventListener('resize', checkMobile);
-    };
-  }, []);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const handleTimeUpdate = () => {
-      setCurrentTime(video.currentTime);
-    };
-
-    const handleLoadedMetadata = () => {
-      setDuration(video.duration);
-    };
-
-    video.addEventListener('timeupdate', handleTimeUpdate);
-    video.addEventListener('loadedmetadata', handleLoadedMetadata);
-    
-    return () => {
-      video.removeEventListener('timeupdate', handleTimeUpdate);
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    };
-  }, []);
+  const heroRef = useRef<HTMLElement>(null);
+  const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
+  const heroY = useTransform(scrollYProgress, [0, 1], [0, 120]);
+  const heroOpacity = useTransform(scrollYProgress, [0, 0.85], [1, 0]);
 
   const togglePlay = () => {
     if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
+      isPlaying ? videoRef.current.pause() : videoRef.current.play();
       setIsPlaying(!isPlaying);
     }
   };
-
-  const replay = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = 0;
-      if (!isPlaying) {
-        videoRef.current.play();
-        setIsPlaying(true);
-      }
-    }
+  const handleWaitlist = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (email.trim()) setSubmitted(true);
   };
 
-  const forward = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Math.min(videoRef.current.currentTime + 10, duration);
-    }
-  };
-
-  const backward = () => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = Math.max(videoRef.current.currentTime - 10, 0);
-    }
-  };
-
-  const formatTime = (time: number) => {
-    const minutes = Math.floor(time / 60);
-    const seconds = Math.floor(time % 60);
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (videoRef.current) {
-      const newTime = parseFloat(e.target.value);
-      videoRef.current.currentTime = newTime;
-      setCurrentTime(newTime);
-    }
-  };
-
-  const whyKandoItems = [
-    {
-      icon: "🔒",
-      title: "Privacy First",
-      description: "End-to-end encryption ensures only you and your recipient can read your messages. No third-party access, no data collection, complete anonymity.",
-      stats: "100% encrypted"
-    },
-    {
-      icon: "🌐",
-      title: "Truly Decentralized",
-      description: "No central servers, no single point of failure. Your data lives on a distributed network of nodes, making censorship impossible.",
-      stats: "P2P network"
-    },
-    {
-      icon: "⛽",
-      title: "Gas-Free",
-      description: "Unlike blockchain-based platforms, KANDO operates without transaction fees. Communication is free for everyone, always.",
-      stats: "$0 fees"
-    },
-    {
-      icon: "🛡️",
-      title: "Censorship-Resistant",
-      description: "Built on complex contagion theory with the 3-approval rule. No central authority can delete or block your content.",
-      stats: "3-approval rule"
-    },
-    {
-      icon: "🔓",
-      title: "Open Source",
-      description: "100% transparent codebase. Anyone can audit, contribute, or fork the project. Community-driven development.",
-      stats: "AGPL-3.0"
-    },
-    {
-      icon: "⚡",
-      title: "Lightning Fast",
-      description: "Optimized P2P protocol with hexagonal network topology. Messages spread instantly through the mesh network.",
-      stats: "< 100ms latency"
-    }
+  const toolkit = [
+    { icon: '🛰️', title: 'Decentralized Mesh', description: 'A peer-to-peer network with hexagonal topology. No central servers, no single point of failure — your messages route through a living mesh of nodes.' },
+    { icon: '🤝', title: 'Complex-Contagion Consensus', description: 'Content spreads only when it earns approval. The 3-approval rule, grounded in complex contagion theory, makes censorship structurally impossible.' },
+    { icon: '🔐', title: 'End-to-End Encryption', description: 'Every message is sealed end-to-end. Only you and your recipient hold the keys — no third party, no data collection, complete anonymity.' },
+    { icon: '⛽', title: 'Gas-Free Delivery', description: 'Unlike blockchain platforms, KANDO charges no transaction fees. Free communication for everyone, with sub-100ms propagation across the mesh.' },
+  ];
+  const modes = [
+    { icon: '🎮', title: 'Network Simulator', desc: 'Watch the protocol spread in real time.' },
+    { icon: '💬', title: 'Secure Chat', desc: 'Encrypted, peer-to-peer messaging.' },
+    { icon: '🧭', title: 'Node Dashboard', desc: 'Monitor your node and the mesh.' },
+    { icon: '🔑', title: 'Key Management', desc: 'Own and control your identity keys.' },
+    { icon: '🌐', title: 'Mesh Routing', desc: 'Adaptive routing across the hive.' },
+    { icon: '📦', title: 'Open Protocol', desc: 'Audit, fork, and build freely.' },
+  ];
+  const faqs = [
+    { q: 'How does KANDO stay censorship-resistant?', a: 'There is no central authority that can delete or block content. Messages propagate through a distributed mesh and only spread once they satisfy the 3-approval rule, a mechanism derived from complex contagion theory.' },
+    { q: 'Is it really free? What about gas fees?', a: 'Yes. KANDO is not built on a fee-based blockchain. There are no transaction or gas fees of any kind — communication is free for everyone, always.' },
+    { q: 'How is my privacy protected?', a: 'All messages are end-to-end encrypted. Only you and your intended recipient can read them. KANDO collects no personal data and runs without identifying you.' },
+    { q: 'Where does my data live?', a: 'On a distributed peer-to-peer network of nodes rather than a company-owned server. This is what makes the network resilient and resistant to takedowns.' },
+    { q: 'Is KANDO open source?', a: 'Completely. The codebase is 100% transparent and licensed under AGPL-3.0. Anyone can audit it, contribute, or fork the project.' },
+    { q: 'How fast is the network?', a: 'The optimized P2P protocol with hexagonal topology delivers messages with under 100ms latency across the mesh in typical conditions.' },
+  ];
+  const timeline = [
+    { phase: 'Closed Beta', date: 'Now', status: 'current', desc: 'Invite-only access for early testers building on the protocol.' },
+    { phase: 'Founders Beta', date: 'June 22, 2026', status: 'upcoming', desc: 'Founders get in first with lifetime perks and priority access.' },
+    { phase: 'Open Beta', date: 'June 29, 2026', status: 'upcoming', desc: 'The network opens to everyone on the waitlist.' },
+  ];
+  const testimonials = [
+    { name: 'Maya R.', role: 'Privacy researcher', text: 'Finally a network where censorship resistance isn’t a marketing line — it’s baked into the protocol.' },
+    { name: 'Dev K.', role: 'Open-source maintainer', text: 'Gas-free, end-to-end encrypted, and fully auditable. I forked it the day I saw the repo.' },
+    { name: 'Sara L.', role: 'Early tester', text: 'The simulator made the 3-approval rule click instantly. Can’t wait for open beta.' },
+    { name: 'Tomas B.', role: 'Node operator', text: 'Running a node was trivial and the mesh just works. Sub-100ms in practice.' },
   ];
 
   return (
-    <main className="min-h-screen bg-[#0d1117] overflow-x-hidden">
-      <Navbar />
+    <main
+      className="relative min-h-screen bg-black text-white overflow-x-hidden selection:bg-white selection:text-black"
+      style={{ fontFamily: 'var(--font-instrument), system-ui, sans-serif' }}
+    >
+      <style>{`
+        @keyframes holoHue {
+          0%   { filter: hue-rotate(0deg)   saturate(1.15) brightness(1.05) drop-shadow(0 0 28px rgba(255,255,255,0.14)); }
+          50%  { filter: hue-rotate(180deg) saturate(1.4)  brightness(1.12) drop-shadow(0 0 40px rgba(255,255,255,0.22)); }
+          100% { filter: hue-rotate(360deg) saturate(1.15) brightness(1.05) drop-shadow(0 0 28px rgba(255,255,255,0.14)); }
+        }
+        @keyframes holoFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes holoSheen { 0% { background-position: -160% 0; } 100% { background-position: 260% 0; } }
+        @media (prefers-reduced-motion: reduce) {
+          .holo-hue, .holo-float, .holo-sheen { animation: none !important; }
+        }
+      `}</style>
 
-      {/* Hero Section */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16 md:pt-20 pb-10">
-        {/* Animated Background */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-jade/10 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-jade/5 rounded-full blur-3xl animate-pulse delay-1000" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-r from-jade/5 to-transparent rounded-full blur-3xl" />
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(46,168,138,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(46,168,138,0.03)_1px,transparent_1px)] bg-[size:50px_50px]" />
-        </div>
+      <MinimalBackdrop />
+      <CursorFollower />
+      <LandingNav />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          
-          {/* Logo */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            className="flex justify-center mb-4 md:mb-6"
-          >
-            <div className="relative w-20 h-20 md:w-24 md:h-24 lg:w-28 lg:h-28">
-              <Image
-                src="/KANDOlogo.png"
-                alt="KANDO Logo"
-                fill
-                className="object-contain rounded-full"
-                priority
-              />
-            </div>
-          </motion.div>
-
-          {/* Badge */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.1 }}
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4 md:mb-6"
-          >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-jade opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-jade" />
-            </span>
-            <span className="text-xs text-jade font-medium">revolutionary protocol</span>
-          </motion.div>
-
-          {/* Title */}
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-bold tracking-tighter"
-          >
-            <span className="bg-gradient-to-r from-jade via-jade-hover to-jade bg-clip-text text-transparent">
-              KANDO
-            </span>
-          </motion.h1>
-
-          {/* Description */}
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="mt-4 md:mt-6 text-base sm:text-lg md:text-xl lg:text-2xl text-[#8b949e] max-w-2xl mx-auto px-4"
-          >
-            Decentralized, censorship-resistant, and gas-free social network protocol.
-            <span className="block text-sm md:text-base mt-2">Join the revolution of free communication.</span>
-          </motion.p>
-
-          {/* Video Section */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-            className="mt-10 md:mt-12 flex justify-center"
-          >
-            <div className="relative w-full max-w-2xl mx-auto rounded-2xl overflow-hidden shadow-2xl shadow-jade/20 border border-jade/30">
-              <video
-                ref={videoRef}
-                src="/KANDOPROMOTE.mp4"
-                className="w-full h-auto max-h-[280px] md:max-h-[350px] object-cover"
-                poster="/KANDOlogo.png"
-              />
-              
-              {/* Video Controls Overlay */}
-              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 md:p-4">
-                {/* Progress Bar */}
-                <div className="mb-2">
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration || 100}
-                    value={currentTime}
-                    onChange={handleSeek}
-                    className="w-full h-1 bg-white/30 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-jade"
-                  />
-                  <div className="flex justify-between text-[10px] md:text-xs text-white/70 mt-1">
-                    <span>{formatTime(currentTime)}</span>
-                    <span>{formatTime(duration)}</span>
-                  </div>
-                </div>
-                
-                {/* Control Buttons */}
-                <div className="flex items-center justify-center gap-2 md:gap-3">
-                  <button
-                    onClick={backward}
-                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
-                    aria-label="Backward 10 seconds"
-                  >
-                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.333 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z" />
-                    </svg>
-                  </button>
-                  
-                  <button
-                    onClick={togglePlay}
-                    className="bg-jade hover:bg-jade-hover rounded-full p-2 md:p-3 transition-all duration-200 transform hover:scale-105 shadow-lg"
-                    aria-label={isPlaying ? "Pause video" : "Play video"}
-                  >
-                    {isPlaying ? (
-                      <svg className="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4 md:w-5 md:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    )}
-                  </button>
-                  
-                  <button
-                    onClick={forward}
-                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
-                    aria-label="Forward 10 seconds"
-                  >
-                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z" />
-                    </svg>
-                  </button>
-                  
-                  <button
-                    onClick={replay}
-                    className="bg-white/20 hover:bg-white/30 rounded-full p-1.5 md:p-2 transition-all duration-200"
-                    aria-label="Replay from start"
-                  >
-                    <svg className="w-3 h-3 md:w-4 md:h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
-                </div>
+      <div className="relative z-10">
+        {/* ============================== HERO / HEADER ============================== */}
+        <section ref={heroRef} className="relative min-h-screen flex items-center justify-center overflow-hidden pt-28 pb-20">
+          <motion.div style={{ y: heroY, opacity: heroOpacity }} className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            {/* Animated holographic logo */}
+            <motion.div initial={{ opacity: 0, scale: 0.7 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.8, ease: EASE }} className="flex justify-center mb-8">
+              <div className="holo-float relative w-44 h-44 sm:w-52 sm:h-52 md:w-64 md:h-64" style={{ animation: 'holoFloat 6s ease-in-out infinite' }}>
+                {/* soft glow */}
+                <div className="absolute inset-0 rounded-full blur-3xl bg-white/10" />
+                {/* logo */}
+                <img src={LOGO} alt="KANDO" className="holo-hue relative w-full h-full object-contain" style={{ animation: 'holoHue 9s linear infinite' }} />
+                {/* sweeping sheen, masked to logo shape */}
+                <div
+                  className="holo-sheen absolute inset-0 pointer-events-none"
+                  style={{
+                    WebkitMaskImage: `url(${LOGO})`, maskImage: `url(${LOGO})`,
+                    WebkitMaskSize: 'contain', maskSize: 'contain',
+                    WebkitMaskRepeat: 'no-repeat', maskRepeat: 'no-repeat',
+                    WebkitMaskPosition: 'center', maskPosition: 'center',
+                    backgroundImage: 'linear-gradient(110deg, transparent 38%, rgba(255,255,255,0.85) 50%, transparent 62%)',
+                    backgroundSize: '250% 100%', mixBlendMode: 'overlay',
+                    animation: 'holoSheen 3.8s ease-in-out infinite',
+                  }}
+                />
               </div>
-              
-              {/* Play Button Overlay */}
-              {!isPlaying && currentTime === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <button
-                    onClick={togglePlay}
-                    className="bg-jade hover:bg-jade-hover rounded-full p-4 md:p-5 transition-all duration-200 transform hover:scale-110 shadow-2xl"
-                    aria-label="Play video"
-                  >
-                    <svg className="w-6 h-6 md:w-8 md:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </button>
-                </div>
-              )}
-            </div>
-          </motion.div>
+            </motion.div>
 
-          {/* CTA Buttons */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className="mt-8 md:mt-10 flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4"
-          >
-            <Link
-              href="/simulator"
-              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
-            >
-              Launch Simulator
-              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
-            </Link>
-            <Link
-              href="/waiting-list"
-              className="group inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
-            >
-              Join Waiting List
-              <svg className="w-4 h-4 md:w-5 md:h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </Link>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Why KANDO? Section */}
-      <section className="py-16 md:py-20 lg:py-24 bg-gradient-to-b from-[#0d1117] to-[#0a0a0f]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="text-center mb-10 md:mb-12"
-          >
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-jade/10 border border-jade/20 mb-4">
-              <span className="text-xs text-jade font-medium">Why KANDO?</span>
-            </div>
-            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-3">
-              The Future of{' '}
-              <span className="bg-gradient-to-r from-jade to-jade-hover bg-clip-text text-transparent">
-                Free Communication
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/5 border border-white/15 backdrop-blur mb-6">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2ea88a] opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2ea88a]" />
               </span>
-            </h2>
-            <p className="text-sm md:text-base text-[#8b949e] max-w-2xl mx-auto">
-              KANDO combines cutting-edge research with practical technology to create a truly decentralized messaging protocol.
-            </p>
-          </motion.div>
+              <span className="text-xs text-white/70 font-medium">Closed Beta live · Open Beta June 2026</span>
+            </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
-            {whyKandoItems.map((item, index) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="group"
-              >
-                <div className="github-card p-5 md:p-6 h-full hover:border-jade transition-all duration-300">
-                  <div className="text-3xl md:text-4xl mb-3 group-hover:scale-110 transition-transform duration-300">
-                    {item.icon}
-                  </div>
-                  <h3 className="text-base md:text-lg font-semibold text-white group-hover:text-jade transition-colors mb-2">
-                    {item.title}
-                  </h3>
-                  <p className="text-xs md:text-sm text-[#8b949e] mb-3 leading-relaxed">
-                    {item.description}
-                  </p>
-                  <div className="inline-block px-2 py-0.5 md:px-3 md:py-1 rounded-full bg-jade/10 border border-jade/20">
-                    <span className="text-[10px] md:text-xs text-jade font-mono">{item.stats}</span>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-16 md:py-20 lg:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="text-center mb-10 md:mb-12 lg:mb-16"
-          >
-            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-3 md:mb-4">
-              Powerful Features for{' '}
-              <span className="bg-gradient-to-r from-jade to-jade-hover bg-clip-text text-transparent">
-                Modern Communication
-              </span>
-            </h2>
-            <p className="text-sm md:text-base lg:text-lg text-[#8b949e] max-w-2xl mx-auto px-4">
-              Everything you need for secure and decentralized messaging
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-            {[
-              {
-                title: 'Network Simulator',
-                description: 'Interactive hexagonal network simulation to visualize the KANDO protocol in action.',
-                icon: '🎮',
-                color: 'from-orange-500/20',
-                href: '/simulator',
-              },
-              {
-                title: 'End-to-End Encryption',
-                description: 'Military-grade encryption ensuring your conversations stay private and secure.',
-                icon: '🔐',
-                color: 'from-blue-500/20',
-                href: '/chat',
-              },
-              {
-                title: 'Open Source',
-                description: '100% transparent codebase. Audit, contribute, and build with freedom.',
-                icon: '📦',
-                color: 'from-purple-500/20',
-                href: '/open-source',
-              },
-              {
-                title: 'Decentralized',
-                description: 'No central servers. Your data belongs to you, not corporations.',
-                icon: '🌐',
-                color: 'from-green-500/20',
-                href: '/waiting-list',
-              },
-            ].map((feature, index) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <Link href={feature.href}>
-                  <div className="github-card p-4 md:p-6 hover:border-jade transition-all duration-300 cursor-pointer group h-full">
-                    <div className={`text-3xl md:text-4xl mb-3 md:mb-4 group-hover:scale-110 transition-transform duration-300 inline-block bg-gradient-to-br ${feature.color} p-2 md:p-3 rounded-xl`}>
-                      {feature.icon}
-                    </div>
-                    <h3 className="text-base md:text-lg font-semibold text-white group-hover:text-jade transition-colors mb-2">
-                      {feature.title}
-                    </h3>
-                    <p className="text-xs md:text-sm text-[#8b949e] mb-3">
-                      {feature.description}
-                    </p>
-                    <div className="flex items-center gap-2 text-jade text-xs md:text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                      Learn more
-                      <svg className="w-3 h-3 md:w-4 md:h-4 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works Section */}
-      <section className="py-16 md:py-20 lg:py-24 bg-[#0d1117]/50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="text-center mb-10 md:mb-12 lg:mb-16"
-          >
-            <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-3 md:mb-4">
-              How{' '}
-              <span className="bg-gradient-to-r from-jade to-jade-hover bg-clip-text text-transparent">
-                KANDO
-              </span>{' '}
-              Works
-            </h2>
-            <p className="text-sm md:text-base lg:text-lg text-[#8b949e] max-w-2xl mx-auto px-4">
-              Simple, secure, and revolutionary approach to messaging
-            </p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-            {[
-              {
-                step: '01',
-                title: 'Connect',
-                description: 'Join the decentralized network using the KANDO protocol.',
-                icon: '🔌',
-              },
-              {
-                step: '02',
-                title: 'Communicate',
-                description: 'Send encrypted messages with end-to-end security.',
-                icon: '💬',
-              },
-              {
-                step: '03',
-                title: 'Collaborate',
-                description: 'Build and contribute to the open-source ecosystem.',
-                icon: '🤝',
-              },
-            ].map((item, index) => (
-              <motion.div
-                key={item.step}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="relative"
-              >
-                <div className="text-center">
-                  <div className="text-4xl md:text-5xl lg:text-6xl font-bold text-jade/20 mb-3 md:mb-4">
-                    {item.step}
-                  </div>
-                  <div className="text-3xl md:text-4xl mb-3 md:mb-4">{item.icon}</div>
-                  <h3 className="text-lg md:text-xl font-semibold text-white mb-2">{item.title}</h3>
-                  <p className="text-xs md:text-sm text-[#8b949e] px-2">{item.description}</p>
-                </div>
-                {index < 2 && (
-                  <div className="hidden md:block absolute top-1/3 -right-4 lg:-right-6 text-xl lg:text-2xl text-jade/30">
-                    →
-                  </div>
-                )}
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section - با دکمه‌های جدید */}
-      <section className="py-16 md:py-20 lg:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
-            viewport={{ once: true }}
-            className="relative overflow-hidden rounded-xl md:rounded-2xl bg-gradient-to-br from-jade/10 via-jade/5 to-transparent border border-jade/20 p-6 md:p-8 lg:p-12 text-center"
-          >
-            <div className="absolute top-0 right-0 w-48 h-48 md:w-64 md:h-64 bg-jade/5 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-0 w-48 h-48 md:w-64 md:h-64 bg-jade/5 rounded-full blur-3xl" />
-
-            <div className="relative z-10">
-              <div className="text-5xl md:text-6xl mb-4">🚀</div>
-              <h2 className="text-xl md:text-2xl lg:text-4xl font-bold text-white mb-3 md:mb-4">
-                Ready to Join the Revolution?
-              </h2>
-              <p className="text-sm md:text-base lg:text-lg text-[#8b949e] mb-6 md:mb-8 max-w-2xl mx-auto px-4">
-                Be part of the future of communication. Explore our open source code or read the documentation.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3 md:gap-4 justify-center px-4">
-                <Link
-                  href="/open-source"
-                  className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg bg-jade hover:bg-jade-hover text-white font-medium transition-all duration-200 transform hover:scale-105 text-sm md:text-base shadow-lg shadow-jade/20"
-                >
-                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                  </svg>
-                  Open Source
-                </Link>
-                <Link
-                  href="/docs"
-                  className="inline-flex items-center justify-center gap-2 px-4 md:px-6 py-2.5 md:py-3 rounded-lg border border-[#30363d] hover:border-jade hover:text-jade text-[#c9d1d9] font-medium transition-all duration-200 text-sm md:text-base"
-                >
-                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                  Documentation
-                </Link>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-[#30363d] bg-[#0d1117]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-12 lg:py-16">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 md:gap-8">
-            <div className="col-span-1 md:col-span-1 text-center md:text-left">
-              <Link href="/" className="inline-flex items-center gap-2 mb-4 group">
-                <div className="relative w-8 h-8">
-                  <Image
-                    src="/KANDOlogo.png"
-                    alt="KANDO Logo"
-                    fill
-                    className="object-contain rounded-full"
-                  />
-                </div>
-                <span className="font-bold text-base md:text-lg text-white group-hover:text-jade transition-colors">
-                  KANDO
+            {/* Masked line reveal */}
+            <motion.h1 className="text-5xl sm:text-6xl md:text-7xl font-semibold tracking-[-0.03em] leading-[1.02]"
+              initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: 0.1, delayChildren: 0.3 } } }}>
+              {[
+                { text: 'All in one', accent: false },
+                { text: 'decentralized communication', accent: true },
+                { text: 'launchpad', accent: false },
+              ].map((line, i) => (
+                <span key={i} className="block overflow-hidden pb-[0.12em]">
+                  <motion.span
+                    className={`block ${line.accent ? 'bg-gradient-to-r from-[#2ea88a] via-[#54c9a6] to-[#2ea88a] bg-clip-text text-transparent' : ''}`}
+                    variants={{ hidden: { y: '115%' }, show: { y: 0, transition: { duration: 0.85, ease: EASE } } }}>
+                    {line.text}
+                  </motion.span>
                 </span>
-              </Link>
-              <p className="text-xs md:text-sm text-[#8b949e] mt-3 md:mt-4">
-                Building the future of decentralized communication.
+              ))}
+            </motion.h1>
+
+            <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.4, ease: EASE }}
+              className="mt-6 text-base sm:text-lg md:text-xl text-white/60 max-w-2xl mx-auto">
+              KANDO is a censorship-resistant, gas-free social protocol. Private by default, decentralized by design, and open for everyone.
+            </motion.p>
+
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.5, ease: EASE }} className="mt-9 max-w-md mx-auto">
+              {submitted ? (
+                <div className="rounded-2xl px-5 py-4 text-white text-sm font-medium border border-white/20 bg-white/10 backdrop-blur">
+                  🎉 You’re on the list — we’ll be in touch before open beta.
+                </div>
+              ) : (
+                <form onSubmit={handleWaitlist} className="flex flex-col sm:flex-row gap-3">
+                  <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com"
+                    className="flex-1 px-5 py-3.5 rounded-full bg-white/5 border border-white/15 text-white placeholder:text-white/40 focus:border-white/50 focus:shadow-[0_0_0_3px_rgba(255,255,255,0.12)] outline-none text-sm transition-colors backdrop-blur" />
+                  <button type="submit"
+                    className="px-6 py-3.5 rounded-full bg-white text-black font-medium transition-transform duration-200 hover:scale-[1.03] text-sm whitespace-nowrap">
+                    Get early access
+                  </button>
+                </form>
+              )}
+              <p className="mt-3 text-center text-xs text-white/45">
+                or <Link href="/simulator" className="text-[#2ea88a] hover:text-[#54c9a6] underline underline-offset-4 decoration-[#2ea88a]/40 font-medium">launch the network simulator →</Link>
               </p>
-              <div className="flex justify-center md:justify-start gap-4 mt-4 md:mt-6">
-                <a 
-                  href="https://github.com/comfyuse/Kando" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  className="text-[#8b949e] hover:text-jade transition-colors"
-                  aria-label="GitHub"
-                >
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.49.5.09.68-.22.68-.48 0-.24-.01-.9-.01-1.75-2.78.6-3.37-1.2-3.37-1.2-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.26.1-2.62 0 0 .84-.27 2.75 1.02.8-.22 1.65-.33 2.5-.33.85 0 1.7.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.36.2 2.37.1 2.62.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85 0 1.34-.01 2.42-.01 2.75 0 .26.18.58.69.48C19.13 20.17 22 16.42 22 12c0-5.52-4.48-10-10-10z"/>
-                  </svg>
-                </a>
-                <a href="#" className="text-[#8b949e] hover:text-jade transition-colors">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 0021.098-11.792c0-.21 0-.42-.015-.63A9.936 9.936 0 0024 4.59z"/>
-                  </svg>
-                </a>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.6, ease: EASE }} className="mt-14 flex justify-center">
+              <div className="relative w-full max-w-3xl mx-auto rounded-2xl overflow-hidden shadow-2xl shadow-black/60 border border-white/15">
+                <video ref={videoRef} src="/KANDOPROMOTE.mp4" className="w-full h-auto max-h-[440px] object-cover" poster={LOGO} onClick={togglePlay} />
+                {!isPlaying && (
+                  <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center bg-black/40 group" aria-label="Play demo">
+                    <span className="bg-white text-black rounded-full p-5 transition-transform duration-200 group-hover:scale-110 shadow-2xl">
+                      <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                    </span>
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        </section>
+
+        {/* ============================== TOOLKIT ============================== */}
+        <section className="py-24 md:py-32">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <SectionHeading eyebrow="The protocol" title="Everything the hive needs" highlight="to communicate freely"
+              sub="One protocol covering identity, routing, consensus, and delivery — built for a network nobody can shut down." />
+            <Stagger className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-6 mt-14">
+              {toolkit.map((item) => (
+                <motion.div key={item.title} variants={revealItem} className={`group ${CARD} p-7 md:p-9 hover:border-white/30 transition-colors duration-300`}>
+                  <div className="text-4xl mb-5 transition-transform duration-300 group-hover:scale-110 inline-block">{item.icon}</div>
+                  <h3 className="text-xl md:text-2xl font-semibold tracking-tight mb-2.5">{item.title}</h3>
+                  <p className="text-sm md:text-base text-white/55 leading-relaxed">{item.description}</p>
+                </motion.div>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+
+        {/* ============================== MODES ============================== */}
+        <section className="py-24 md:py-32">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <SectionHeading eyebrow="Flexible modes" title="One network," highlight="every way you work"
+              sub="From a visual simulator to encrypted chat and node ops — switch modes without leaving KANDO." />
+            <Stagger className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 mt-14">
+              {modes.map((m) => (
+                <motion.div key={m.title} variants={revealItem} className={`group ${CARD} p-5 hover:border-white/30 transition-colors duration-300 flex items-start gap-4`}>
+                  <div className="text-2xl bg-white/5 border border-white/10 rounded-xl p-2.5 transition-transform group-hover:scale-110">{m.icon}</div>
+                  <div>
+                    <h3 className="text-base font-semibold">{m.title}</h3>
+                    <p className="text-xs md:text-sm text-white/50 mt-1">{m.desc}</p>
+                  </div>
+                </motion.div>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+
+        {/* ============================== FAQ ============================== */}
+        <section id="faq" className="py-24 md:py-32">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+            <SectionHeading eyebrow="FAQ" title="Questions," highlight="answered" sub="Everything you might want to know before joining the network." />
+            <Stagger className="mt-14 space-y-3">
+              {faqs.map((faq, i) => (
+                <motion.div key={i} variants={revealItem} className={`${CARD} overflow-hidden`}>
+                  <button onClick={() => setOpenFaq(openFaq === i ? null : i)} className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left">
+                    <span className="text-sm md:text-base font-medium">{faq.q}</span>
+                    <svg className={`w-5 h-5 text-[#2ea88a] shrink-0 transition-transform duration-300 ${openFaq === i ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <div className={`grid transition-all duration-300 ${openFaq === i ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}>
+                    <div className="overflow-hidden"><p className="px-5 pb-4 text-sm text-white/55 leading-relaxed">{faq.a}</p></div>
+                  </div>
+                </motion.div>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+
+        {/* ============================== TIMELINE ============================== */}
+        <section className="py-24 md:py-32">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+            <SectionHeading eyebrow="Roadmap" title="The road to" highlight="open beta" sub="Three milestones between now and a fully open network." />
+            <Stagger className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-6">
+              {timeline.map((t) => (
+                <motion.div key={t.phase} variants={revealItem} className={`${CARD} p-7 ${t.status === 'current' ? 'border-white/35' : ''}`}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className={`relative flex h-2.5 w-2.5 ${t.status === 'current' ? '' : 'opacity-40'}`}>
+                      {t.status === 'current' && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#2ea88a] opacity-75" />}
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#2ea88a]" />
+                    </span>
+                    <span className="text-xs font-medium text-[#2ea88a]">{t.date}</span>
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{t.phase}</h3>
+                  <p className="text-sm text-white/55 leading-relaxed">{t.desc}</p>
+                </motion.div>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+
+        {/* ============================== TESTIMONIALS ============================== */}
+        <section className="py-24 md:py-32">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <SectionHeading eyebrow="Community" title="Loved by" highlight="the early hive" sub="What testers and node operators are saying about KANDO." />
+            <Stagger className="grid grid-cols-1 md:grid-cols-2 gap-5 mt-14">
+              {testimonials.map((t) => (
+                <motion.div key={t.name} variants={revealItem} className={`${CARD} p-7 hover:border-white/25 transition-colors duration-300`}>
+                  <p className="text-sm md:text-base text-white/80 leading-relaxed">“{t.text}”</p>
+                  <div className="mt-5 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white font-semibold text-sm">{t.name.charAt(0)}</div>
+                    <div>
+                      <div className="text-sm font-medium">{t.name}</div>
+                      <div className="text-xs text-white/45">{t.role}</div>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </Stagger>
+          </div>
+        </section>
+
+        {/* ============================== FINAL CTA ============================== */}
+        <section className="py-24 md:py-32">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <Reveal>
+              <div className="relative overflow-hidden rounded-3xl border border-white/15 bg-white/[0.03] backdrop-blur-sm p-10 md:p-16 text-center">
+                <h2 className="text-3xl md:text-5xl font-semibold tracking-tight mb-4">Ready to join the hive?</h2>
+                <p className="text-sm md:text-lg text-white/60 mb-9 max-w-2xl mx-auto">Reserve your spot for open beta, or dive into the open-source code today.</p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link href="/waiting-list" className="inline-flex items-center justify-center px-7 py-3.5 rounded-full bg-white text-black font-medium transition-transform duration-200 hover:scale-[1.03] text-sm md:text-base">Get early access</Link>
+                  <Link href="/open-source" className="inline-flex items-center justify-center px-7 py-3.5 rounded-full border border-white/25 hover:bg-white/10 text-white font-medium transition-all duration-200 text-sm md:text-base">Explore Open Source</Link>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ============================== FOOTER ============================== */}
+        <footer className="border-t border-white/10">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14 md:py-16">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+              <div className="text-center md:text-left">
+                <Link href="/" className="inline-flex items-center gap-2.5 mb-4 group">
+                  <img src={LOGO} alt="KANDO" className="h-9 w-auto object-contain" />
+                </Link>
+                <p className="text-sm text-white/45 mt-4">Building the future of decentralized communication.</p>
+                <div className="flex justify-center md:justify-start gap-4 mt-6">
+                  <a href="https://github.com/comfyuse/Kando" target="_blank" rel="noopener noreferrer" className="text-white/45 hover:text-white transition-colors" aria-label="GitHub">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12c0 4.42 2.87 8.17 6.84 9.49.5.09.68-.22.68-.48 0-.24-.01-.9-.01-1.75-2.78.6-3.37-1.2-3.37-1.2-.45-1.15-1.11-1.46-1.11-1.46-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.34 1.08 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.26.1-2.62 0 0 .84-.27 2.75 1.02.8-.22 1.65-.33 2.5-.33.85 0 1.7.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.36.2 2.37.1 2.62.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85 0 1.34-.01 2.42-.01 2.75 0 .26.18.58.69.48C19.13 20.17 22 16.42 22 12c0-5.52-4.48-10-10-10z" /></svg>
+                  </a>
+                  <a href="#" className="text-white/45 hover:text-white transition-colors" aria-label="Twitter">
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 0021.098-11.792c0-.21 0-.42-.015-.63A9.936 9.936 0 0024 4.59z" /></svg>
+                  </a>
+                </div>
+              </div>
+              <div className="col-span-3 grid grid-cols-2 md:grid-cols-3 gap-8 text-center md:text-left">
+                <div>
+                  <h3 className="text-sm font-semibold mb-4">Product</h3>
+                  <ul className="space-y-2">
+                    <li><Link href="/simulator" className="text-sm text-white/45 hover:text-white transition-colors">Simulator</Link></li>
+                    <li><Link href="/chat" className="text-sm text-white/45 hover:text-white transition-colors">Chat App</Link></li>
+                    <li><Link href="/waiting-list" className="text-sm text-white/45 hover:text-white transition-colors">Waiting List</Link></li>
+                    <li><Link href="/open-source" className="text-sm text-white/45 hover:text-white transition-colors">Open Source</Link></li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold mb-4">Resources</h3>
+                  <ul className="space-y-2">
+                    <li><Link href="/docs" className="text-sm text-white/45 hover:text-white transition-colors">Documentation</Link></li>
+                    <li><a href="https://github.com/comfyuse/Kando" target="_blank" rel="noopener noreferrer" className="text-sm text-white/45 hover:text-white transition-colors">GitHub</a></li>
+                    <li><a href="#faq" className="text-sm text-white/45 hover:text-white transition-colors">FAQ</a></li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold mb-4">Company</h3>
+                  <ul className="space-y-2">
+                    <li><a href="#" className="text-sm text-white/45 hover:text-white transition-colors">About</a></li>
+                    <li><a href="#" className="text-sm text-white/45 hover:text-white transition-colors">Privacy Policy</a></li>
+                    <li><a href="#" className="text-sm text-white/45 hover:text-white transition-colors">Terms of Service</a></li>
+                  </ul>
+                </div>
               </div>
             </div>
-
-            <div className="col-span-3 grid grid-cols-2 md:grid-cols-3 gap-6 md:gap-8 text-center md:text-left">
-              <div>
-                <h3 className="text-xs md:text-sm font-semibold text-white mb-3 md:mb-4">Product</h3>
-                <ul className="space-y-2">
-                  <li><Link href="/simulator" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Simulator</Link></li>
-                  <li><Link href="/chat" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Chat App</Link></li>
-                  <li><Link href="/waiting-list" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Waiting List</Link></li>
-                  <li><Link href="/open-source" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Open Source</Link></li>
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-xs md:text-sm font-semibold text-white mb-3 md:mb-4">Resources</h3>
-                <ul className="space-y-2">
-                  <li><Link href="/docs" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Documentation</Link></li>
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">API Reference</a></li>
-                  <li><a href="https://github.com/comfyuse/Kando" target="_blank" rel="noopener noreferrer" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">GitHub</a></li>
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Blog</a></li>
-                </ul>
-              </div>
-              <div>
-                <h3 className="text-xs md:text-sm font-semibold text-white mb-3 md:mb-4">Company</h3>
-                <ul className="space-y-2">
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">About</a></li>
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Contact</a></li>
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Privacy Policy</a></li>
-                  <li><a href="#" className="text-xs md:text-sm text-[#8b949e] hover:text-jade transition-colors">Terms of Service</a></li>
-                </ul>
-              </div>
+            <div className="border-t border-white/10 mt-12 pt-8 text-center">
+              <p className="text-xs text-white/45">© {new Date().getFullYear()} KANDO. All rights reserved. Built with ❤️ for open source.</p>
             </div>
           </div>
+        </footer>
+      </div>
+    </main>
+  );
+}
 
-          <div className="border-t border-[#30363d] mt-8 md:mt-10 lg:mt-12 pt-6 md:pt-8 text-center">
-            <p className="text-[10px] md:text-xs text-[#8b949e]">
-              © {new Date().getFullYear()} KANDO. All rights reserved. Built with ❤️ for open source.
-            </p>
+// --- Minimal monochrome backdrop (subtle drifting glows on black) ----------
+function MinimalBackdrop() {
+  const blobs = [
+    { size: '55vw', top: '-12%', left: '-8%', dur: 30, x: [0, 80, -40, 0], y: [0, 60, 120, 0], color: '46,168,138', o: 0.1 },
+    { size: '45vw', top: '20%', left: '60%', dur: 26, x: [0, -90, 50, 0], y: [0, 80, -30, 0], color: '255,255,255', o: 0.05 },
+    { size: '50vw', top: '65%', left: '15%', dur: 34, x: [0, 100, 30, 0], y: [0, -70, 40, 0], color: '46,168,138', o: 0.07 },
+  ];
+  return (
+    <div aria-hidden className="fixed inset-0 z-0 overflow-hidden bg-black pointer-events-none">
+      {blobs.map((b, i) => (
+        <motion.div key={i} className="absolute rounded-full blur-[110px] will-change-transform"
+          style={{ width: b.size, height: b.size, top: b.top, left: b.left, background: `radial-gradient(circle at 50% 50%, rgba(${b.color},${b.o}), transparent 70%)` }}
+          animate={{ x: b.x, y: b.y, scale: [1, 1.15, 0.95, 1] }}
+          transition={{ duration: b.dur, repeat: Infinity, ease: 'easeInOut' }} />
+      ))}
+      <div className="absolute inset-0 opacity-[0.06] mix-blend-soft-light"
+        style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")" }} />
+    </div>
+  );
+}
+
+// --- Custom cursor follower (subtle white ring that trails the mouse) ------
+function CursorFollower() {
+  const x = useMotionValue(-200);
+  const y = useMotionValue(-200);
+  const sx = useSpring(x, { damping: 28, stiffness: 320, mass: 0.4 });
+  const sy = useSpring(y, { damping: 28, stiffness: 320, mass: 0.4 });
+  const [hovering, setHovering] = useState(false);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.matchMedia('(pointer: coarse)').matches) return;
+    const move = (e: MouseEvent) => { x.set(e.clientX); y.set(e.clientY); setVisible(true); };
+    const over = (e: MouseEvent) => { const t = e.target as HTMLElement; setHovering(!!t.closest('a, button, input, [data-cursor]')); };
+    const leave = () => setVisible(false);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseover', over);
+    document.addEventListener('mouseleave', leave);
+    return () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseover', over);
+      document.removeEventListener('mouseleave', leave);
+    };
+  }, [x, y]);
+
+  return (
+    <motion.div aria-hidden className="hidden md:block fixed top-0 left-0 z-[60] pointer-events-none" style={{ x: sx, y: sy }}>
+      <motion.div className="-translate-x-1/2 -translate-y-1/2 rounded-full border border-white/60 bg-white/10 backdrop-blur-[1px]"
+        animate={{ width: hovering ? 60 : 20, height: hovering ? 60 : 20, opacity: visible ? 1 : 0 }}
+        transition={{ type: 'spring', damping: 20, stiffness: 260 }} />
+    </motion.div>
+  );
+}
+
+// --- Homepage-only navbar (minimal; shared Navbar untouched) ---------------
+function LandingNav() {
+  const [scrolled, setScrolled] = useState(false);
+  const [open, setOpen] = useState(false);
+  const links = [
+    { name: 'Simulator', href: '/simulator' },
+    { name: 'Chat', href: '/chat' },
+    { name: 'Waiting List', href: '/waiting-list' },
+    { name: 'Open Source', href: '/open-source' },
+    { name: 'Docs', href: '/docs' },
+  ];
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 20);
+    onScroll();
+    window.addEventListener('scroll', onScroll);
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  return (
+    <>
+      <motion.nav
+        initial={{ y: -110, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
+        className={`fixed top-0 left-0 right-0 z-50 transition-colors duration-300 ${scrolled ? 'bg-black/60 backdrop-blur-md border-b border-white/10' : 'bg-transparent'}`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16 md:h-20">
+            <Link href="/" className="flex items-center gap-2 group relative z-50">
+              <div className="relative w-8 h-8 md:w-9 md:h-9 transition-transform group-hover:scale-105 duration-200">
+                <img src="/KANDOlogo.png" alt="KANDO Logo" className="w-full h-full object-contain rounded-full" />
+              </div>
+              <span className="font-bold text-lg md:text-xl tracking-tight">KANDO</span>
+            </Link>
+
+            <div className="hidden md:flex items-center gap-7 lg:gap-9">
+              {links.map((l) => (
+                <Link key={l.name} href={l.href} className="text-white/65 hover:text-white transition-colors text-sm font-medium">{l.name}</Link>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Link href="/waiting-list" className="hidden md:inline-flex px-4 py-2 rounded-full bg-white text-black text-sm font-medium transition-transform duration-200 hover:scale-[1.03]">
+                Get early access
+              </Link>
+              <button onClick={() => setOpen(!open)} className="md:hidden relative z-50 w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" aria-label="Toggle menu">
+                <div className="relative w-5 h-5">
+                  <span className={`absolute block w-5 h-0.5 bg-white transition-all duration-300 ${open ? 'rotate-45 top-2' : 'top-0.5'}`} />
+                  <span className={`absolute block w-5 h-0.5 bg-white transition-all duration-300 top-2 ${open ? 'opacity-0' : ''}`} />
+                  <span className={`absolute block w-5 h-0.5 bg-white transition-all duration-300 ${open ? '-rotate-45 top-2' : 'top-3.5'}`} />
+                </div>
+              </button>
+            </div>
           </div>
         </div>
-      </footer>
-    </main>
+      </motion.nav>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="fixed inset-0 z-40 md:hidden" onClick={() => setOpen(false)}>
+            <div className="absolute inset-0 bg-black/85 backdrop-blur-md" />
+            <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'tween', duration: 0.3 }}
+              className="absolute right-0 top-0 h-full w-72 bg-black border-l border-white/10 p-6 pt-24" onClick={(e) => e.stopPropagation()}>
+              <div className="space-y-1">
+                {links.map((l) => (
+                  <Link key={l.name} href={l.href} onClick={() => setOpen(false)} className="block px-4 py-3 rounded-xl text-white/70 hover:text-white hover:bg-white/5 transition-colors font-medium">{l.name}</Link>
+                ))}
+              </div>
+              <Link href="/waiting-list" onClick={() => setOpen(false)} className="mt-6 flex items-center justify-center px-4 py-3 rounded-full bg-white text-black font-medium transition-colors">Get early access</Link>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// --- Shared section heading (animated on scroll) ---------------------------
+function SectionHeading({ eyebrow, title, highlight, sub }: { eyebrow: string; title: string; highlight: string; sub: string }) {
+  return (
+    <Stagger className="text-center max-w-2xl mx-auto">
+      <motion.div variants={revealItem} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/15 mb-5">
+        <span className="text-xs text-white/70 font-medium uppercase tracking-wide">{eyebrow}</span>
+      </motion.div>
+      <motion.h2 variants={revealItem} className="text-3xl md:text-4xl lg:text-5xl font-semibold tracking-[-0.02em] leading-[1.1]">
+        {title} <span className="bg-gradient-to-r from-[#2ea88a] via-[#54c9a6] to-[#2ea88a] bg-clip-text text-transparent">{highlight}</span>
+      </motion.h2>
+      <motion.p variants={revealItem} className="mt-4 text-sm md:text-base text-white/55">{sub}</motion.p>
+    </Stagger>
   );
 }
