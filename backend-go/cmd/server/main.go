@@ -950,6 +950,9 @@ func main() {
 	// Account auth (email + password, security-question reset)
 	registerAuthRoutes(r)
 
+	// Waitlist (public front door — email capture, no access granted)
+	registerWaitlistRoutes(r)
+
 	r.HandleFunc("/ws", handleWebSocket)
 
 	corsHandler := cors.New(cors.Options{

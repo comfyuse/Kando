@@ -76,6 +76,24 @@ export async function login(input: { email: string; password: string }): Promise
   return account;
 }
 
+/**
+ * Join the public waitlist. This grants NO access and issues no session —
+ * entry to the hive is by invite code only. It simply records the email.
+ */
+export async function joinWaitlist(input: {
+  email: string;
+  name?: string;
+}): Promise<{ status: string; position?: number; message?: string }> {
+  const res = await fetch(`${BASE_URL}/api/waitlist`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string })?.error || 'Something went wrong.');
+  return data as { status: string; position?: number; message?: string };
+}
+
 /** Look up the security question shown during password reset. */
 export async function getSecurityQuestion(email: string): Promise<string> {
   const res = await fetch(`${BASE_URL}/api/auth/security-question?email=${encodeURIComponent(email)}`);

@@ -1,9 +1,9 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
-import { Account, login, register, getSecurityQuestion, resetPassword } from '@/lib/auth-client';
+import { Account, login, register, getSecurityQuestion, resetPassword, joinWaitlist } from '@/lib/auth-client';
 
-type Mode = 'login' | 'signup' | 'reset';
+type Mode = 'waitlist' | 'login' | 'signup' | 'reset';
 
 const SECURITY_QUESTIONS = [
   'What was the name of your first pet?',
@@ -39,7 +39,7 @@ function Field({
 }
 
 export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) => void }) {
-  const [mode, setMode] = useState<Mode>('login');
+  const [mode, setMode] = useState<Mode>('waitlist');
 
   // shared fields
   const [name, setName] = useState('');
@@ -52,6 +52,9 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
   const [resetStep, setResetStep] = useState<1 | 2>(1);
   const [resetQuestion, setResetQuestion] = useState('');
 
+  // waitlist confirmation
+  const [joined, setJoined] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,6 +62,7 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
     setMode(next);
     setError(null);
     setResetStep(1);
+    setJoined(false);
   };
 
   const submit = async (e: FormEvent) => {
@@ -67,7 +71,11 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
     setError(null);
     setBusy(true);
     try {
-      if (mode === 'signup') {
+      if (mode === 'waitlist') {
+        // Joining the waitlist never grants access — entry is by invite only.
+        await joinWaitlist({ email, name: name.trim() || undefined });
+        setJoined(true);
+      } else if (mode === 'signup') {
         onAuthed(await register({ name, email, password, securityQuestion, securityAnswer }));
       } else if (mode === 'login') {
         onAuthed(await login({ email, password }));
@@ -88,11 +96,13 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
   };
 
   const subtitle =
-    mode === 'signup'
+    mode === 'waitlist'
+      ? 'Join the waitlist for early access'
+      : mode === 'signup'
       ? 'Create your account to enter the hive'
       : mode === 'reset'
       ? 'Reset your password with your security question'
-      : 'Log in to your account';
+      : 'Log in with your invite';
 
   return (
     <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 relative overflow-hidden bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f]">
@@ -109,7 +119,7 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
         </div>
 
         <div className="glass-modern rounded-3xl p-6">
-          {mode !== 'reset' && (
+          {(mode === 'login' || mode === 'signup') && (
             <div className="grid grid-cols-2 gap-1 p-1 rounded-2xl bg-white/[0.04] mb-6">
               {(['login', 'signup'] as Mode[]).map((m) => (
                 <button
@@ -128,6 +138,16 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
             </div>
           )}
 
+          {mode === 'waitlist' && joined ? (
+            <div className="flex flex-col items-center text-center gap-3 py-2">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--jade)]/15 flex items-center justify-center text-3xl">🐝</div>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">You&apos;re on the waitlist</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                We&apos;ll reach out at{' '}
+                <span className="text-[var(--text-secondary)]">{email}</span> when the hive opens. Entry is by invite code only.
+              </p>
+            </div>
+          ) : (
           <form onSubmit={submit} className="flex flex-col gap-3">
             {mode === 'signup' && (
               <Field type="text" placeholder="Full name" value={name} onChange={setName} autoComplete="name" />
@@ -198,6 +218,8 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
             >
               {busy
                 ? 'Please wait…'
+                : mode === 'waitlist'
+                ? 'Join the waitlist'
                 : mode === 'signup'
                 ? 'Create account'
                 : mode === 'login'
@@ -207,9 +229,10 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
                 : 'Reset password'}
             </button>
           </form>
+          )}
 
           {/* Google login placeholder — wired later once OAuth keys are added. */}
-          {mode !== 'reset' && (
+          {(mode === 'login' || mode === 'signup') && (
             <button
               type="button"
               disabled
@@ -225,6 +248,11 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
         </div>
 
         <div className="text-center text-xs text-[var(--text-muted)] mt-6">
+          {mode === 'waitlist' && !joined && (
+            <button type="button" onClick={() => go('login')} className="text-[var(--jade)] hover:underline">
+              Have an invite code? Log in
+            </button>
+          )}
           {mode === 'login' && (
             <>
               <button type="button" onClick={() => go('reset')} className="text-[var(--jade)] hover:underline">
@@ -234,12 +262,22 @@ export default function AuthScreen({ onAuthed }: { onAuthed: (account: Account) 
               <button type="button" onClick={() => go('signup')} className="text-[var(--jade)] hover:underline">
                 Create an account
               </button>
+              <span className="mx-2">·</span>
+              <button type="button" onClick={() => go('waitlist')} className="text-[var(--jade)] hover:underline">
+                Join the waitlist
+              </button>
             </>
           )}
           {mode === 'signup' && (
-            <button type="button" onClick={() => go('login')} className="text-[var(--jade)] hover:underline">
-              Already have an account? Log in
-            </button>
+            <>
+              <button type="button" onClick={() => go('login')} className="text-[var(--jade)] hover:underline">
+                Already have an account? Log in
+              </button>
+              <span className="mx-2">·</span>
+              <button type="button" onClick={() => go('waitlist')} className="text-[var(--jade)] hover:underline">
+                Join the waitlist
+              </button>
+            </>
           )}
           {mode === 'reset' && (
             <button type="button" onClick={() => go('login')} className="text-[var(--jade)] hover:underline">
