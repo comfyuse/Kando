@@ -1,7 +1,9 @@
 // lib/dht-client.ts
 // DHT-aware P2P client with ECDH + AES-GCM end-to-end encryption.
 
-const BASE_URL = 'http://localhost:8080';
+import { NODE_HTTP, NODE_WS } from '@/lib/node-config';
+
+const BASE_URL = NODE_HTTP;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -256,7 +258,7 @@ class DHTClient {
     this.peerId   = peerId;
     this.peerName = name;
 
-    const url = `ws://localhost:8080/ws?peerId=${encodeURIComponent(peerId)}&name=${encodeURIComponent(name)}`;
+    const url = `${NODE_WS}/ws?peerId=${encodeURIComponent(peerId)}&name=${encodeURIComponent(name)}`;
     this.ws = new WebSocket(url);
 
     this.statusHandlers.forEach(h => h('connecting'));

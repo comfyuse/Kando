@@ -946,10 +946,14 @@ func main() {
 	r.HandleFunc("/api/send-request", handleSendRequest).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/accept-request", handleAcceptRequest).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/deny-request", handleDenyRequest).Methods("POST", "OPTIONS")
+
+	// Account auth (email + password, security-question reset)
+	registerAuthRoutes(r)
+
 	r.HandleFunc("/ws", handleWebSocket)
 
 	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:3001"},
+		AllowedOrigins:   []string{"https://kandonet.com", "https://www.kandonet.com", "http://localhost:3000", "http://localhost:3001"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,

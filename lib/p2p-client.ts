@@ -1,5 +1,7 @@
 // app/lib/p2p-client.ts
 
+import { NODE_HTTP, NODE_WS } from '@/lib/node-config';
+
 export interface Peer {
   id: string;
   name: string;
@@ -41,7 +43,7 @@ class P2PClient {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private pingInterval: NodeJS.Timeout | null = null;
-  private baseUrl = 'http://localhost:8080';
+  private baseUrl = NODE_HTTP;
 
   async register(name: string): Promise<RegisterResponse> {
     try {
@@ -66,7 +68,7 @@ class P2PClient {
   connect(peerId: string, name: string) {
     this.peerId = peerId;
     this.peerName = name;
-    const wsUrl = `ws://localhost:8080/ws?peerId=${peerId}&name=${encodeURIComponent(name)}`;
+    const wsUrl = `${NODE_WS}/ws?peerId=${peerId}&name=${encodeURIComponent(name)}`;
     console.log('🔌 Connecting to WebSocket:', wsUrl);
     this.ws = new WebSocket(wsUrl);
     
