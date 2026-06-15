@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "backend": "cd backend-go && go run cmd/server/main.go",
+    "backend": "cd backend-go && go run ./cmd/server",
     "dev:all": "concurrently \"npm run dev\" \"npm run backend\""
   },
   "dependencies": {

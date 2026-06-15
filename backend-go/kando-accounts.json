@@ -1,0 +1,17 @@
+{
+  "accounts": {
+    "a@k.com": {
+      "name": "Alireza",
+      "email": "a@k.com",
+      "passwordHash": "$2a$10$uIfS.eVUWM7xxNebwjC7CO55Rx1WYKSZpazwAntCfmaGelgGhc/pi",
+      "securityQuestion": "First pet?",
+      "securityAnswerHash": "$2a$10$b31F/9vLHql6qHR4SEnfqOfkUcbn7ODHXjbOcEvSXmHFDookWIMX6",
+      "created": "2026-06-15T13:23:58.95473+03:30"
+    }
+  },
+  "sessions": {
+    "57f50f73aa19c4562641b064ad44cf30": "a@k.com",
+    "a49d46e31d6565b71ba01afab7750b91": "a@k.com",
+    "ac8c52636f7bc5bd0717acbc5fc7c6a4": "a@k.com"
+  }
+}

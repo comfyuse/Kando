@@ -70,8 +70,8 @@ export default function DocumentationPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0d1117]">
-      <Navbar />
+    <main className="min-h-screen bg-black">
+      <Navbar solid />
 
       <div className="flex">
         {/* Sidebar Navigation - Desktop */}

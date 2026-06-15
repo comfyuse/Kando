@@ -12,8 +12,14 @@ import { dhtClient, NetworkMember, Invite } from '@/lib/dht-client';
 import ProfilePanel from './components/ProfilePanel';
 import ChatPanel from './components/ChatPanel';
 import MessageRequests from './components/MessageRequests';
-import FriendsList from './components/FriendsList';
 import InvitePanel from './components/InvitePanel';
+import Navbar from '@/components/Navbar';
+import AppNav, { AppTab } from './components/AppNav';
+import ChatsView from './components/ChatsView';
+import TasksView from './components/TasksView';
+import AccountView from './components/AccountView';
+import AuthScreen from './components/AuthScreen';
+import { Account, getStoredAccount, clearSession, logout as authLogout } from '@/lib/auth-client';
 
 // Data
 import { citizenNames, personProfiles, generatePeerHash, UserProfile, MessageRequest } from './data/profiles';
@@ -49,7 +55,7 @@ const getProfileForCell = (cell: Cell): UserProfile => {
 
   let profile: UserProfile;
 
-  if (cell.status === 'citizen') {
+  if (cell.status === 'citizen' && citizenNames.length > 0) {
     const nameIndex = citizenCounter % citizenNames.length;
     const name = citizenNames[nameIndex];
     profile = { ...personProfiles[name] };
@@ -102,6 +108,11 @@ export default function ChatPage() {
   const sceneRef = useRef<{ render: () => void }>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // The 4-tab shell — 'kando' is the live hive (Scene2D), the others overlay it.
+  const [activeTab, setActiveTab] = useState<AppTab>('kando');
+  // Account auth gate — until a user is logged in, only AuthScreen renders.
+  const [account, setAccount] = useState<Account | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   // P2P Chat States
   const [myPeerId, setMyPeerId] = useState<string | null>(null);
@@ -138,6 +149,12 @@ export default function ChatPage() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Restore a logged-in account from a previous session (validated at login).
+  useEffect(() => {
+    setAccount(getStoredAccount());
+    setAuthReady(true);
   }, []);
 
   // Load friends from localStorage on mount
@@ -229,8 +246,10 @@ export default function ChatPage() {
     }
   }, []);
 
-  // Register user when component mounts
+  // Register user once they are logged in. The hive identity is the account
+  // name; no more anonymous prompt() — auth happens against the backend first.
   useEffect(() => {
+    if (!account) return;
     const registerUser = async () => {
       try {
         console.log('🔍 Checking backend connection...');
@@ -245,22 +264,8 @@ export default function ChatPage() {
         // Invite-link landing: /chat?invite=<token> claims the reserved cell
         const inviteToken = new URLSearchParams(window.location.search).get('invite');
 
-        let selectedIdentity = localStorage.getItem('kando_selected_identity');
-
-        if (!selectedIdentity) {
-          selectedIdentity = prompt(
-            inviteToken
-              ? '🐝 You are invited to the KANDO hive!\n\nEnter your name to claim your cell:'
-              : 'Enter your name for this session:',
-            'KANDO_User'
-          );
-          if (selectedIdentity && selectedIdentity.trim()) {
-            localStorage.setItem('kando_selected_identity', selectedIdentity);
-          } else {
-            selectedIdentity = 'KANDO_User';
-          }
-        }
-
+        // Identity is the authenticated account's name.
+        const selectedIdentity = account.name;
         setMyIdentity(selectedIdentity);
 
         // DHT registration first — the FIRST member ever becomes the QUEEN and
@@ -371,7 +376,7 @@ export default function ChatPage() {
     return () => {
       p2pClient.disconnect();
     };
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     const cells = Array.from(netRef.current.cells.values());
@@ -575,8 +580,42 @@ export default function ChatPage() {
     });
   }, []);
 
+  const handleLogout = async () => {
+    await authLogout();
+    clearSession();
+    p2pClient.disconnect();
+    setMyIdentity('');
+    setMyPeerId(null);
+    setMyPeerHash(null);
+    setAccount(null);
+    setActiveTab('kando');
+  };
+
+  // ── Auth gate ──────────────────────────────────────────────────────────────
+  if (!authReady) {
+    return <main className="min-h-[100dvh] flex items-center justify-center bg-[#0a0a0f] text-3xl">🐝</main>;
+  }
+  if (!account) {
+    return <AuthScreen onAuthed={setAccount} />;
+  }
+
+  // ── Onboarding-task progress, derived live from the hive ──────────────────
+  // The queen's 6 neighbour cells (axial coords around the genesis cell).
+  const QUEEN_NEIGHBORS: [number, number][] = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+  const neighborMember = (q: number, r: number) =>
+    members.find((m) => m.hasCell && m.cellQ === q && m.cellR === r);
+  const neighborsInvited = QUEEN_NEIGHBORS.filter(
+    ([q, r]) => neighborMember(q, r) || invites.some((i) => i.cellQ === q && i.cellR === r),
+  ).length;
+  const neighborsApproved = QUEEN_NEIGHBORS.filter(([q, r]) => {
+    const m = neighborMember(q, r);
+    return m && (m.status === 'candidate' || m.status === 'citizen');
+  }).length;
+  const myHasCell = isQueen || !!members.find((m) => m.id === myPeerId)?.hasCell;
+
   return (
     <main className="w-full h-screen bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f] overflow-hidden relative">
+      <Navbar solid />
       {/* Animated Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-[var(--jade)]/5 via-transparent to-[var(--jade)]/5 animate-pulse-slow pointer-events-none hidden md:block" />
       <div className="absolute top-0 left-0 w-96 h-96 bg-[var(--jade)]/10 rounded-full blur-3xl animate-float pointer-events-none hidden md:block" />
@@ -590,27 +629,9 @@ export default function ChatPage() {
       </div>
 
       {/* Mobile Header */}
-      <header className="absolute top-0 left-0 right-0 z-20 pointer-events-auto">
+      <header className="absolute top-16 md:top-20 left-0 right-0 z-20 pointer-events-auto">
         <div className="flex items-center justify-between px-4 py-3 md:px-6 md:py-3">
-          <div className="flex items-center gap-2 md:gap-2.5 animate-fadeIn">
-            <Link href="/" className="relative block transition-transform hover:scale-105 active:scale-95">
-              <div className="w-8 h-8 md:w-8 md:h-8 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center shadow-md shadow-[var(--jade)]/20 overflow-hidden">
-                <Image
-                  src="/KANDOlogo.png"
-                  alt="KANDO Logo"
-                  width={28}
-                  height={28}
-                  className="object-contain rounded-full"
-                  loading="eager"
-                />
-              </div>
-              <div className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-            </Link>
-            <div className="hidden sm:block">
-              <h1 className="text-sm md:text-base font-bold tracking-wider bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent">KANDO</h1>
-              <p className="text-[7px] md:text-[8px] text-[var(--text-muted)] tracking-wider font-medium">DECENTRALIZED PROTOCOL</p>
-            </div>
-          </div>
+          <div />
 
           {/* Mobile Menu Button */}
           <button
@@ -723,108 +744,67 @@ export default function ChatPage() {
         )}
       </header>
 
-      {/* Stats Panel - Responsive */}
-      <div className="absolute top-16 md:top-20 left-0 right-0 z-20 pointer-events-auto animate-fadeIn px-2 md:px-0" style={{ animationDelay: '0.15s' }}>
-        <div className="flex justify-center">
-          <div className="glass-modern px-2 md:px-4 py-1.5 md:py-2 rounded-xl md:rounded-2xl flex gap-1 md:gap-2 overflow-x-auto scrollbar-hide max-w-[calc(100vw-1rem)] md:max-w-none">
-            {[
-              { label: 'MEMBERS', value: stats.alive, color: 'text-[var(--jade)]' },
-              { label: 'CIT', value: stats.citizens, color: 'text-emerald-400' },
-              { label: 'CAND', value: stats.candidates, color: 'text-sky-400' },
-              { label: 'RES', value: stats.reserved, color: 'text-red-400' },
-              { label: 'INVITES', value: invites.length, color: 'text-amber-400' },
-              { label: 'RING', value: stats.maxRing, color: 'text-purple-400' }
-            ].map((stat) => (
-              <div key={stat.label} className="stat-card-modern px-1.5 md:px-3 py-1 md:py-1.5 text-center min-w-[40px] md:min-w-[60px]">
-                <div className="text-[7px] md:text-[8px] font-semibold text-[var(--text-muted)] tracking-wider uppercase">{stat.label}</div>
-                <div className={`text-[10px] md:text-sm font-bold tabular-nums ${stat.color}`}>{stat.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Connected Peers Section - Mobile Friendly */}
-      {connectedPeers.length > 0 && !isMobile && (
-        <div className="absolute bottom-24 left-4 z-20 pointer-events-auto">
-          <div className="glass-modern p-3 rounded-xl min-w-[200px]">
-            <div className="text-[10px] font-semibold text-[var(--text-muted)] tracking-wider uppercase mb-2">
-              🔗 Connected ({connectedPeers.length})
-            </div>
-            <div className="flex flex-col gap-1">
-              {connectedPeers.slice(0, 3).map(peer => (
-                <button
-                  key={peer.id}
-                  onClick={() => setCurrentChatPeer(peer)}
-                  className="px-2 py-1.5 text-xs rounded-lg transition-all text-left w-full bg-white/5 hover:bg-white/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[var(--gold)] to-[var(--gold-light)] flex items-center justify-center text-xs font-bold text-white">
-                        {peer.name.charAt(0)}
-                      </div>
-                      <span className="truncate max-w-[100px]">{peer.name}</span>
-                    </div>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  </div>
-                </button>
+      {/* Stats Panel - Responsive (hive tab only) */}
+      {activeTab === 'kando' && (
+        <div className="absolute top-32 md:top-44 left-0 right-0 z-20 pointer-events-auto animate-fadeIn px-2 md:px-0" style={{ animationDelay: '0.15s' }}>
+          <div className="flex justify-center">
+            <div className="glass-modern px-2 md:px-4 py-1.5 md:py-2 rounded-xl md:rounded-2xl flex gap-1 md:gap-2 overflow-x-auto scrollbar-hide max-w-[calc(100vw-1rem)] md:max-w-none">
+              {[
+                { label: 'MEMBERS', value: stats.alive, color: 'text-[var(--jade)]' },
+                { label: 'CIT', value: stats.citizens, color: 'text-emerald-400' },
+                { label: 'CAND', value: stats.candidates, color: 'text-sky-400' },
+                { label: 'RES', value: stats.reserved, color: 'text-red-400' },
+                { label: 'INVITES', value: invites.length, color: 'text-amber-400' },
+                { label: 'RING', value: stats.maxRing, color: 'text-purple-400' }
+              ].map((stat) => (
+                <div key={stat.label} className="stat-card-modern px-1.5 md:px-3 py-1 md:py-1.5 text-center min-w-[40px] md:min-w-[60px]">
+                  <div className="text-[7px] md:text-[8px] font-semibold text-[var(--text-muted)] tracking-wider uppercase">{stat.label}</div>
+                  <div className={`text-[10px] md:text-sm font-bold tabular-nums ${stat.color}`}>{stat.value}</div>
+                </div>
               ))}
-              {connectedPeers.length > 3 && (
-                <div className="text-[10px] text-center text-[var(--text-muted)] pt-1">
-                  +{connectedPeers.length - 3} more
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Friends Section - Desktop */}
-      {!isMobile && (
-        <div className="absolute bottom-24 right-4 z-20 pointer-events-auto">
-          <FriendsList
-            friends={friends}
-            onSelectFriend={(friend) => setCurrentChatPeer(friend)}
-            currentChatPeer={currentChatPeer}
-            onRemoveFriend={handleRemoveFriend}
-          />
-        </div>
-      )}
-
-      {/* Mobile Friends Bottom Sheet */}
-      {isMobile && friends.length > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-[var(--bg-secondary)]/95 backdrop-blur-xl border-t border-white/10 rounded-t-2xl animate-slideUp">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-            <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-[var(--jade)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <span className="text-sm font-semibold text-[var(--text-primary)]">Friends</span>
-              <span className="text-[10px] text-[var(--text-muted)] bg-white/5 px-1.5 py-0.5 rounded-full">
-                {friends.length}
-              </span>
-            </div>
-            <div className="text-[10px] text-[var(--text-muted)]">Tap to chat</div>
-          </div>
-          <div className="overflow-x-auto whitespace-nowrap p-3 flex gap-2">
-            {friends.map((friend) => (
-              <button
-                key={friend.id}
-                onClick={() => {
-                  setCurrentChatPeer(friend);
-                  setMobileMenuOpen(false);
-                }}
-                className="flex flex-col items-center gap-1 min-w-[60px]"
-              >
-                <div className="relative">
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold shadow-md">
-                    {friend.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[var(--bg-secondary)] animate-pulse" />
-                </div>
-                <span className="text-[10px] text-[var(--text-primary)] truncate max-w-[60px]">{friend.name}</span>
-              </button>
-            ))}
+      {/* Tab content overlay — Chats / Tasks / Account render above the hive.
+          The 'kando' tab shows the live Scene2D hive underneath (no overlay). */}
+      {activeTab !== 'kando' && (
+        <div className="absolute inset-0 z-30 overflow-y-auto custom-scrollbar bg-[#0a0a0f]/92 backdrop-blur-xl pointer-events-auto animate-fadeIn">
+          <div className="min-h-full px-4 md:px-6 pt-24 md:pt-28 pb-32">
+            {activeTab === 'chats' && (
+              <ChatsView
+                friends={friends}
+                onlinePeers={onlinePeers}
+                currentChatPeer={currentChatPeer}
+                onSelectPeer={(peer) => setCurrentChatPeer(peer)}
+                onRemoveFriend={handleRemoveFriend}
+                onConnect={() => setShowConnectModal(true)}
+              />
+            )}
+            {activeTab === 'tasks' && (
+              <TasksView
+                isQueen={isQueen}
+                neighborsInvited={neighborsInvited}
+                neighborsApproved={neighborsApproved}
+                friendCount={friends.length}
+                hasCell={myHasCell}
+                onGoTo={setActiveTab}
+              />
+            )}
+            {activeTab === 'account' && (
+              <AccountView
+                identity={myIdentity || account.name}
+                email={account.email}
+                myPeerHash={myPeerHash}
+                isQueen={isQueen}
+                backendStatus={backendStatus}
+                stats={stats}
+                friendCount={friends.length}
+                onCopyHash={copyMyHash}
+                onLogout={handleLogout}
+              />
+            )}
           </div>
         </div>
       )}
@@ -953,7 +933,7 @@ export default function ChatPage() {
       )}
 
       {/* Queen's Invite Panel — send invite links for the 6 neighbour cells */}
-      {isQueen && (
+      {isQueen && activeTab === 'kando' && (
         <div className={`z-20 pointer-events-auto animate-fadeIn ${
           isMobile ? 'absolute top-32 left-2 right-2' : 'absolute top-36 left-4'
         }`} style={{ animationDelay: '0.2s' }}>
@@ -965,6 +945,13 @@ export default function ChatPage() {
           />
         </div>
       )}
+
+      {/* 4-tab bottom navigation — Account · Chats · Kando · Tasks */}
+      <AppNav
+        active={activeTab}
+        onChange={setActiveTab}
+        badge={{ chats: messageRequests.filter((r) => r.status === 'pending').length }}
+      />
     </main>
   );
 }

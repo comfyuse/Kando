@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import Navbar from '@/components/Navbar';
 
 // Where waiting-list submissions are delivered. FormSubmit forwards every
 // submission to this inbox as a structured email. The very first submission
@@ -11,14 +10,6 @@ import { usePathname } from 'next/navigation';
 // link once and all future submissions arrive automatically.
 const DESTINATION_EMAIL = 'brainsbalance21@gmail.com';
 const FORM_ENDPOINT = `https://formsubmit.co/ajax/${DESTINATION_EMAIL}`;
-
-const navLinks = [
-  { name: 'Simulator', href: '/simulator', icon: '🎮', description: 'CANDO Protocol Simulation' },
-  { name: 'Chat', href: '/chat', icon: '💬', description: 'Secure Messaging' },
-  { name: 'Waiting List', href: '/waiting-list', icon: '⏳', description: 'Get Early Access' },
-  { name: 'Docs', href: '/docs', icon: '📄', description: 'Protocol Documentation' },
-  { name: 'Open Source', href: '/open-source', icon: '🔓', description: 'View on GitHub' },
-];
 
 // ── Shared field styles ───────────────────────────────────────────────────────
 
@@ -47,115 +38,6 @@ function GlassBackdrop() {
   );
 }
 
-function Sidebar({
-  isMobile,
-  mobileMenuOpen,
-  setMobileMenuOpen,
-  pathname,
-}: {
-  isMobile: boolean;
-  mobileMenuOpen: boolean;
-  setMobileMenuOpen: (v: boolean) => void;
-  pathname: string;
-}) {
-  return (
-    <>
-      {/* Mobile top bar */}
-      {isMobile && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-white/[0.04] backdrop-blur-xl border-b border-white/10">
-          <div className="flex items-center justify-between px-4 py-3">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="relative w-8 h-8">
-                <Image src="/KANDOlogo.png" alt="KANDO Logo" fill className="object-contain rounded-full" />
-              </div>
-              <span className="font-bold text-lg text-white">KANDO</span>
-            </Link>
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-xl bg-white/5 border border-white/10 hover:border-[#2ea88a]/60 transition-colors"
-              aria-label="Menu"
-            >
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {mobileMenuOpen ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                )}
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile drawer */}
-      {isMobile && mobileMenuOpen && (
-        <>
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setMobileMenuOpen(false)} />
-          <div className="fixed left-0 top-0 h-full w-64 bg-white/[0.04] backdrop-blur-2xl border-r border-white/10 z-50 shadow-2xl pt-16">
-            <div className="p-4 flex flex-col gap-2">
-              {navLinks.map((link) => {
-                const isActive = pathname === link.href;
-                return (
-                  <Link
-                    key={link.name}
-                    href={link.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                      isActive
-                        ? 'bg-[#2ea88a]/15 text-[#2ea88a] border border-[#2ea88a]/30'
-                        : 'hover:bg-white/5 text-[#c9d1d9] border border-transparent'
-                    }`}
-                  >
-                    <span className="text-2xl">{link.icon}</span>
-                    <div>
-                      <div className="font-medium">{link.name}</div>
-                      <div className="text-xs text-[#8b949e]">{link.description}</div>
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Desktop sidebar */}
-      <div className="hidden md:block fixed left-0 top-0 h-full w-64 bg-white/[0.03] backdrop-blur-2xl border-r border-white/10 z-30 overflow-y-auto">
-        <div className="p-4 pt-8">
-          <Link href="/" className="flex items-center gap-2 mb-8 group">
-            <div className="relative w-8 h-8 transition-transform group-hover:scale-105 duration-200">
-              <Image src="/KANDOlogo.png" alt="KANDO Logo" fill className="object-contain rounded-full" />
-            </div>
-            <span className="font-bold text-white group-hover:text-[#2ea88a] transition-colors">KANDO</span>
-          </Link>
-          <div className="flex flex-col gap-1.5">
-            {navLinks.map((link) => {
-              const isActive = pathname === link.href;
-              return (
-                <Link
-                  key={link.name}
-                  href={link.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${
-                    isActive
-                      ? 'bg-[#2ea88a]/15 text-[#2ea88a] border border-[#2ea88a]/30'
-                      : 'hover:bg-white/5 text-[#c9d1d9] border border-transparent hover:text-[#2ea88a]'
-                  }`}
-                >
-                  <span className="text-xl">{link.icon}</span>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{link.name}</div>
-                    <div className="text-[10px] text-[#8b949e]">{link.description}</div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
 function SectionCard({ step, title, children }: { step: number; title: string; children: React.ReactNode }) {
   return (
     <div className="bg-white/[0.04] backdrop-blur-xl border border-white/10 rounded-2xl p-5 md:p-6 shadow-xl shadow-black/20 transition-all hover:border-white/20">
@@ -179,10 +61,6 @@ function Label({ children, required }: { children: React.ReactNode; required?: b
 }
 
 export default function WaitingListPage() {
-  const [isMobile, setIsMobile] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const pathname = usePathname();
-
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -206,10 +84,6 @@ export default function WaitingListPage() {
     if (!document.documentElement.classList.contains('dark')) {
       document.documentElement.classList.add('dark');
     }
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
   const validateForm = () => {
@@ -289,8 +163,8 @@ export default function WaitingListPage() {
     return (
       <main className="min-h-screen text-white">
         <GlassBackdrop />
-        <Sidebar isMobile={isMobile} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen} pathname={pathname} />
-        <div className={`md:ml-64 ${isMobile ? 'pt-14' : ''}`}>
+        <Navbar solid />
+        <div className="pt-16 md:pt-20">
           <div className="flex items-center justify-center min-h-screen p-4 md:p-8">
             <div className="max-w-md w-full text-center bg-white/[0.04] backdrop-blur-2xl border border-white/10 rounded-3xl p-8 md:p-10 shadow-2xl shadow-[#2ea88a]/10 animate-[fadeIn_0.5s_ease-out]">
               <div className="relative w-20 h-20 mx-auto mb-6">
@@ -328,9 +202,9 @@ export default function WaitingListPage() {
   return (
     <main className="min-h-screen text-white">
       <GlassBackdrop />
-      <Sidebar isMobile={isMobile} mobileMenuOpen={mobileMenuOpen} setMobileMenuOpen={setMobileMenuOpen} pathname={pathname} />
+      <Navbar solid />
 
-      <div className={`md:ml-64 ${isMobile ? 'pt-14' : ''}`}>
+      <div className="pt-16 md:pt-20">
         <div className="max-w-2xl mx-auto p-4 md:p-8 pb-20">
           {/* Hero */}
           <div className="text-center mb-8">
