@@ -953,6 +953,9 @@ func main() {
 	// Waitlist (public front door — email capture, no access granted)
 	registerWaitlistRoutes(r)
 
+	// Key-based cell identity (issuer mint, key login — the new model)
+	registerCellRoutes(r)
+
 	r.HandleFunc("/ws", handleWebSocket)
 
 	corsHandler := cors.New(cors.Options{
