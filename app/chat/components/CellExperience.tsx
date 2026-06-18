@@ -27,6 +27,11 @@ import {
   storeProfile,
   getProfile,
 } from '@/lib/cell-client';
+import dynamic from 'next/dynamic';
+import { Network } from '@/lib/simulator';
+
+// The same canvas hex simulator the chat page has always used.
+const Scene2D = dynamic(() => import('@/components/Scene2D'), { ssr: false });
 
 type Entry = 'waitlist' | 'key' | 'issuer';
 
@@ -35,40 +40,6 @@ const STATUS_COLOR: Record<string, string> = {
   candidate: '#3b82f6',
   citizen: 'var(--jade)',
 };
-
-// axial (q,r) → pixel offset from centre, flat-top hexagons
-function hexPixel(q: number, r: number, size: number): { x: number; y: number } {
-  return { x: size * 1.5 * q, y: size * Math.sqrt(3) * (r + q / 2) };
-}
-
-function Hexagon({
-  cx,
-  cy,
-  size,
-  fill,
-  stroke,
-  onClick,
-  children,
-}: {
-  cx: number;
-  cy: number;
-  size: number;
-  fill: string;
-  stroke: string;
-  onClick?: () => void;
-  children?: React.ReactNode;
-}) {
-  const pts = Array.from({ length: 6 }, (_, i) => {
-    const a = (Math.PI / 180) * (60 * i);
-    return `${cx + size * Math.cos(a)},${cy + size * Math.sin(a)}`;
-  }).join(' ');
-  return (
-    <g onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
-      <polygon points={pts} fill={fill} stroke={stroke} strokeWidth={2} />
-      {children}
-    </g>
-  );
-}
 
 export default function CellExperience() {
   const [keyBlob, setKeyBlob] = useState<string | null>(null);
@@ -140,12 +111,24 @@ export default function CellExperience() {
     );
   }
 
-  // ── the hive ──────────────────────────────────────────────────────────────
-  const SIZE = 46;
-  const W = 360;
-  const H = 360;
-  const cx = W / 2;
-  const cy = H / 2;
+  // ── the hive (rendered with the Scene2D simulator) ─────────────────────────
+  // Build a simulator Network from my cell + occupied neighbours, carrying the
+  // real backend statuses; empty neighbour slots become clickable ghost hexes.
+  const net = new Network('mvp');
+  net.cells.clear();
+  if (cell) {
+    const me = net.seedMember(cell.q, cell.r);
+    me.status = cell.status as 'reserved' | 'candidate' | 'citizen';
+    for (const n of cell.neighbours) {
+      if (n.occupied) {
+        const nc = net.seedMember(n.q, n.r);
+        nc.status = (n.status || 'reserved') as 'reserved' | 'candidate' | 'citizen';
+      }
+    }
+  }
+  const ghostCoords = (cell?.neighbours || [])
+    .filter((n) => !n.occupied)
+    .map((n) => ({ q: n.q, r: n.r }));
 
   const doInvite = async (q: number, r: number) => {
     setBusy(true);
@@ -221,43 +204,20 @@ export default function CellExperience() {
         <span className="text-xs text-[var(--text-muted)]">{approvedCount}/6 neighbours approved you</span>
       </div>
 
-      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="mb-2">
-        {/* neighbours */}
-        {(cell?.neighbours || []).map((n) => {
-          const p = hexPixel(n.q - (cell?.q ?? 0), n.r - (cell?.r ?? 0), SIZE);
-          const x = cx + p.x;
-          const y = cy + p.y;
-          const fill = n.occupied ? `${STATUS_COLOR[n.status || 'reserved']}22` : 'rgba(255,255,255,0.03)';
-          const stroke = n.occupied ? STATUS_COLOR[n.status || 'reserved'] : 'rgba(255,255,255,0.15)';
-          return (
-            <Hexagon
-              key={`${n.q},${n.r}`}
-              cx={x}
-              cy={y}
-              size={SIZE}
-              fill={fill}
-              stroke={stroke}
-              onClick={n.occupied ? undefined : () => doInvite(n.q, n.r)}
-            >
-              <text x={x} y={y - 4} textAnchor="middle" fontSize="10" fill="var(--text-secondary)">
-                {n.q},{n.r}
-              </text>
-              <text x={x} y={y + 10} textAnchor="middle" fontSize="9" fill="var(--text-muted)">
-                {n.occupied ? (n.approved ? '✓ approved' : n.status) : '+ invite'}
-              </text>
-            </Hexagon>
-          );
-        })}
-        {/* centre = me */}
-        <Hexagon cx={cx} cy={cy} size={SIZE} fill={`${myColor}33`} stroke={myColor}>
-          <text x={cx} y={cy - 2} textAnchor="middle" fontSize="11" fill="var(--text-primary)" fontWeight="600">
-            you
-          </text>
-          <text x={cx} y={cy + 12} textAnchor="middle" fontSize="9" fill="var(--text-muted)">
-            {cell?.status}
-          </text>
-        </Hexagon>
-      </svg>
+      <div className="w-full max-w-md h-[420px] rounded-2xl border border-white/10 overflow-hidden mb-3 bg-[#0a0a0f]">
+        <Scene2D
+          network={net}
+          ghostCoords={ghostCoords}
+          onGhostClick={(q, r) => doInvite(q, r)}
+          onCellClick={(c) => {
+            const nb = cell?.neighbours.find((n) => n.q === c.coord.q && n.r === c.coord.r && n.occupied);
+            if (nb?.pubKey && pending.some((p) => p.from === nb.pubKey)) approve(nb.pubKey);
+          }}
+        />
+      </div>
+      <p className="w-full max-w-md text-[11px] text-[var(--text-muted)] mb-3">
+        Gold = queen · green = citizen · blue = candidate · red = reserved · dashed = invite. Drag to pan, scroll to zoom.
+      </p>
 
       <div className="w-full max-w-md flex flex-col gap-2">
         <button

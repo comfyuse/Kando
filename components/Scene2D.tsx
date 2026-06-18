@@ -7,6 +7,8 @@ interface Scene2DProps {
   network: Network
   onCellClick?: (cell: Cell) => void
   showMessageIcons?: boolean
+  ghostCoords?: { q: number; r: number }[]
+  onGhostClick?: (q: number, r: number) => void
 }
 
 function axialToPixel(q: number, r: number, size: number, cx: number, cy: number) {
@@ -16,7 +18,7 @@ function axialToPixel(q: number, r: number, size: number, cx: number, cy: number
   }
 }
 
-const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageIcons = false }: Scene2DProps, ref: any) {
+const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageIcons = false, ghostCoords, onGhostClick }: Scene2DProps, ref: any) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const offsetRef = useRef({ x: 0, y: 0 })
   const dragRef = useRef(false)
@@ -159,7 +161,35 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageI
         }
       }
     }
-  }, [network, size, showMessageIcons])
+
+    // ghost (invite-able) empty slots — dashed outlines with a +
+    if (ghostCoords && ghostCoords.length) {
+      ctx.save()
+      for (const g of ghostCoords) {
+        if (network.cells.get(`${g.q},${g.r}`)) continue
+        const { x, y } = axialToPixel(g.q, g.r, size, cx, cy)
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 180) * (60 * i)
+          const px = x + size * Math.cos(a)
+          const py = y + size * Math.sin(a)
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)
+        }
+        ctx.closePath()
+        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.22)'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
+        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)'
+        ctx.font = `${Math.max(12, size * 0.6)}px sans-serif`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText('+', x, y)
+      }
+      ctx.restore()
+    }
+  }, [network, size, showMessageIcons, ghostCoords])
 
   useImperativeHandle(ref, () => ({
     render: () => render()
@@ -199,9 +229,15 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageI
         const px = e.clientX - rect.left
         const py = e.clientY - rect.top
 
-        if (onCellClick) {
-          const cell = getCellAtPixel(px, py)
-          if (cell && cell.isAlive() && cell.status === 'citizen') onCellClick(cell)
+        const cell = getCellAtPixel(px, py)
+        if (cell && cell.isAlive()) {
+          onCellClick?.(cell)
+        } else if (onGhostClick) {
+          const gcx = canvas.clientWidth / 2 + offsetRef.current.x
+          const gcy = canvas.clientHeight / 2 + offsetRef.current.y
+          const q = Math.round((2 / 3 * (px - gcx)) / size)
+          const r = Math.round((-1 / 3 * (px - gcx) + Math.sqrt(3) / 3 * (py - gcy)) / size)
+          if ((ghostCoords || []).some((g) => g.q === q && g.r === r)) onGhostClick(q, r)
         }
       }
       dragRef.current = false
@@ -221,7 +257,7 @@ const Scene2D = forwardRef(function Scene2D({ network, onCellClick, showMessageI
       window.removeEventListener('mouseup', onMouseUp)
       canvas.removeEventListener('wheel', onWheel)
     }
-  }, [render, size, network, onCellClick])
+  }, [render, size, network, onCellClick, onGhostClick, ghostCoords])
 
   useEffect(() => {
     const observer = new MutationObserver((mutations) => {
