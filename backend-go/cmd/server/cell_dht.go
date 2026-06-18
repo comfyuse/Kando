@@ -22,7 +22,52 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
+	"time"
 )
+
+// ── Short-lived DHT read cache ───────────────────────────────────────────────
+// Stage computation reads the same cell/coord/approval keys many times per
+// request (the candidate/citizen checks overlap heavily). Without a cache a
+// single login fires hundreds of DHT GetValues. A few-second cache collapses
+// those into one read each and makes the 8s auto-refresh cheap. Writes update
+// the cache so the writer sees its own changes immediately.
+var dhtCache = struct {
+	mu sync.Mutex
+	m  map[string]struct {
+		val []byte
+		exp time.Time
+	}
+}{m: make(map[string]struct {
+	val []byte
+	exp time.Time
+})}
+
+const dhtCacheTTL = 5 * time.Second
+
+func cachedGet(key string) ([]byte, error) {
+	dhtCache.mu.Lock()
+	if e, ok := dhtCache.m[key]; ok && time.Now().Before(e.exp) {
+		v := e.val
+		dhtCache.mu.Unlock()
+		return v, nil
+	}
+	dhtCache.mu.Unlock()
+	v, err := p2pNode.GetDHT(key)
+	if err == nil {
+		cachePut(key, v)
+	}
+	return v, err
+}
+
+func cachePut(key string, val []byte) {
+	dhtCache.mu.Lock()
+	dhtCache.m[key] = struct {
+		val []byte
+		exp time.Time
+	}{val: val, exp: time.Now().Add(dhtCacheTTL)}
+	dhtCache.mu.Unlock()
+}
 
 // ── Record shapes ──────────────────────────────────────────────────────────
 type cellRec struct {
@@ -175,22 +220,37 @@ func putCellRec(pub string, q, r, seq int, priv *ecdsa.PrivateKey) error {
 	rec := cellRec{Pub: pub, Q: q, R: r, Seq: seq}
 	rec.Sig = signWithPriv(priv, cellMsg(rec))
 	b, _ := json.Marshal(rec)
-	return p2pNode.PutDHT(cellDHTKey(pub), b)
+	key := cellDHTKey(pub)
+	if err := p2pNode.PutDHT(key, b); err != nil {
+		return err
+	}
+	cachePut(key, b)
+	return nil
 }
 func putCoordRec(q, r int, pub string, seq int, priv *ecdsa.PrivateKey) error {
 	rec := coordRec{Pub: pub, Q: q, R: r, Seq: seq}
 	rec.Sig = signWithPriv(priv, coordMsg(rec))
 	b, _ := json.Marshal(rec)
-	return p2pNode.PutDHT(coordDHTKey(q, r), b)
+	key := coordDHTKey(q, r)
+	if err := p2pNode.PutDHT(key, b); err != nil {
+		return err
+	}
+	cachePut(key, b)
+	return nil
 }
 func putApprRec(target, approver, sig string) error {
 	rec := apprRec{Target: target, Approver: approver, Sig: sig}
 	b, _ := json.Marshal(rec)
-	return p2pNode.PutDHT(apprDHTKey(target, approver), b)
+	key := apprDHTKey(target, approver)
+	if err := p2pNode.PutDHT(key, b); err != nil {
+		return err
+	}
+	cachePut(key, b)
+	return nil
 }
 
 func getCellRec(pub string) *cellRec {
-	v, err := p2pNode.GetDHT(cellDHTKey(pub))
+	v, err := cachedGet(cellDHTKey(pub))
 	if err != nil || v == nil {
 		return nil
 	}
@@ -207,7 +267,7 @@ func coordOwner(q, r int) string {
 	return ""
 }
 func coordRecord(q, r int) *coordRec {
-	v, err := p2pNode.GetDHT(coordDHTKey(q, r))
+	v, err := cachedGet(coordDHTKey(q, r))
 	if err != nil || v == nil {
 		return nil
 	}
@@ -218,15 +278,20 @@ func coordRecord(q, r int) *coordRec {
 	return &rec
 }
 func hasApprovalDHT(approver, target string) bool {
-	v, err := p2pNode.GetDHT(apprDHTKey(target, approver))
+	v, err := cachedGet(apprDHTKey(target, approver))
 	return err == nil && v != nil
 }
 func putProfRec(pub, name, sig string) error {
 	b, _ := json.Marshal(profRec{Pub: pub, Name: name, Sig: sig})
-	return p2pNode.PutDHT(profDHTKey(pub), b)
+	key := profDHTKey(pub)
+	if err := p2pNode.PutDHT(key, b); err != nil {
+		return err
+	}
+	cachePut(key, b)
+	return nil
 }
 func getProfName(pub string) string {
-	v, err := p2pNode.GetDHT(profDHTKey(pub))
+	v, err := cachedGet(profDHTKey(pub))
 	if err != nil || v == nil {
 		return ""
 	}
