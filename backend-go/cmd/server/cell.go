@@ -338,8 +338,21 @@ func handleSendProfile(w http.ResponseWriter, req *http.Request) {
 		authError(w, http.StatusUnauthorized, "Invalid sender signature.")
 		return
 	}
+	env := ProfileEnvelope{From: body.From, To: body.To, Ciphertext: body.Ciphertext, Created: time.Now()}
 	envelopes.mu.Lock()
-	envelopes.m[body.To] = append(envelopes.m[body.To], ProfileEnvelope{From: body.From, To: body.To, Ciphertext: body.Ciphertext, Created: time.Now()})
+	list := envelopes.m[body.To]
+	replaced := false
+	for i := range list { // one envelope per sender — re-sending overwrites, never duplicates
+		if list[i].From == body.From {
+			list[i] = env
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		list = append(list, env)
+	}
+	envelopes.m[body.To] = list
 	envelopes.mu.Unlock()
 	writeJSON(w, map[string]interface{}{"status": "ok"})
 }

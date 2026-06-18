@@ -17,6 +17,7 @@ export interface Neighbour {
   pubKey?: string;
   status?: string;
   approved?: boolean; // has this neighbour approved ME?
+  approvals?: number; // how many of THEIR 6 neighbours approved them (x/6)
 }
 export interface CellState {
   publicKey: string;

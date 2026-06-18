@@ -227,6 +227,17 @@ func stageDHT(pub string, q, r int) string {
 	return "citizen"
 }
 
+// approvalCount returns how many of the cell's 6 neighbours have approved it.
+func approvalCount(pub string, q, r int) int {
+	c := 0
+	for _, d := range hexDirs {
+		if owner := coordOwner(q+d[0], r+d[1]); owner != "" && hasApprovalDHT(owner, pub) {
+			c++
+		}
+	}
+	return c
+}
+
 // neighboursDHT returns the 6 surrounding coords with occupant + approval state.
 func neighboursDHT(q, r, _seq int, pub string) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, 6)
@@ -239,6 +250,7 @@ func neighboursDHT(q, r, _seq int, pub string) []map[string]interface{} {
 			entry["pubKey"] = owner
 			if nc != nil {
 				entry["status"] = stageDHT(owner, nc.Q, nc.R)
+				entry["approvals"] = approvalCount(owner, nc.Q, nc.R)
 			}
 			entry["approved"] = hasApprovalDHT(owner, pub)
 		}

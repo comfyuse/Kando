@@ -70,10 +70,13 @@ export default function CellExperience() {
     // pull + decrypt any profiles neighbours sent me to verify
     const envs = await fetchProfiles(pub);
     const decoded: { from: string; name: string }[] = [];
+    const seen = new Set<string>();
     for (const e of envs) {
+      if (seen.has(e.from)) continue; // one verification request per neighbour
       try {
         const p = await decryptProfile(blob, e.from, e.ciphertext);
         decoded.push({ from: e.from, name: `${p.firstName} ${p.lastName}`.trim() });
+        seen.add(e.from);
       } catch {
         /* not for me / bad ciphertext */
       }
@@ -82,7 +85,12 @@ export default function CellExperience() {
   }, []);
 
   useEffect(() => {
-    if (keyBlob) refresh(keyBlob).catch((e) => setError(String(e)));
+    if (!keyBlob) return;
+    refresh(keyBlob).catch((e) => setError(String(e)));
+    // auto-refresh so new verification requests + status changes show up
+    // without the user reloading.
+    const id = setInterval(() => refresh(keyBlob).catch(() => {}), 8000);
+    return () => clearInterval(id);
   }, [keyBlob, refresh]);
 
   const enterWithKey = (blob: string) => {
@@ -248,6 +256,22 @@ export default function CellExperience() {
         >
           Send my profile to neighbours for verification
         </button>
+
+        {(cell?.neighbours || []).some((n) => n.occupied) && (
+          <div className="rounded-xl border border-white/10 p-3">
+            <p className="text-xs text-[var(--text-muted)] mb-2">Your neighbours:</p>
+            {(cell?.neighbours || [])
+              .filter((n) => n.occupied)
+              .map((n) => (
+                <div key={`${n.q},${n.r}`} className="flex items-center justify-between py-1 text-sm">
+                  <span className="capitalize" style={{ color: STATUS_COLOR[n.status || 'reserved'] || '#888' }}>
+                    ({n.q},{n.r}) · {n.status}
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)]">{n.approvals ?? 0}/6 verified</span>
+                </div>
+              ))}
+          </div>
+        )}
 
         {pending.length > 0 && (
           <div className="rounded-xl border border-white/10 p-3">
