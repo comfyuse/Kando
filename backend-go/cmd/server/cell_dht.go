@@ -45,6 +45,17 @@ type apprRec struct {
 	Sig      string `json:"sig"`
 }
 
+// profRec is a cell's PUBLIC display profile (just a name) — signed by the
+// owner so others can see who a cell belongs to when they click it.
+type profRec struct {
+	Pub  string `json:"pub"`
+	Name string `json:"name"`
+	Sig  string `json:"sig"`
+}
+
+func profMsg(name string) string { return "kando-pubprofile:" + name }
+func profDHTKey(pub string) string { return "/kando/pub/" + pubHash(pub) }
+
 func cellMsg(r cellRec) string  { return fmt.Sprintf("kando-cellrec:%s:%d,%d:%d", r.Pub, r.Q, r.R, r.Seq) }
 func coordMsg(r coordRec) string {
 	return fmt.Sprintf("kando-coordrec:%d,%d:%s:%d", r.Q, r.R, r.Pub, r.Seq)
@@ -127,6 +138,14 @@ func (kandoValidator) Validate(key string, value []byte) error {
 		if pubHash(r.Target)+"_"+pubHash(r.Approver) != p[3] || !verifySig(r.Approver, approveMessage(r.Target), r.Sig) {
 			return errors.New("bad appr record")
 		}
+	case "pub":
+		var r profRec
+		if json.Unmarshal(value, &r) != nil {
+			return errors.New("bad pub json")
+		}
+		if pubHash(r.Pub) != p[3] || !verifySig(r.Pub, profMsg(r.Name), r.Sig) {
+			return errors.New("bad pub record")
+		}
 	default:
 		return errors.New("unknown record type")
 	}
@@ -201,6 +220,21 @@ func coordRecord(q, r int) *coordRec {
 func hasApprovalDHT(approver, target string) bool {
 	v, err := p2pNode.GetDHT(apprDHTKey(target, approver))
 	return err == nil && v != nil
+}
+func putProfRec(pub, name, sig string) error {
+	b, _ := json.Marshal(profRec{Pub: pub, Name: name, Sig: sig})
+	return p2pNode.PutDHT(profDHTKey(pub), b)
+}
+func getProfName(pub string) string {
+	v, err := p2pNode.GetDHT(profDHTKey(pub))
+	if err != nil || v == nil {
+		return ""
+	}
+	var r profRec
+	if json.Unmarshal(v, &r) != nil {
+		return ""
+	}
+	return r.Name
 }
 
 // ── Stage computation over the DHT ──────────────────────────────────────────

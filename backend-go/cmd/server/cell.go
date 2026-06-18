@@ -375,4 +375,38 @@ func registerCellRoutes(r *mux.Router) {
 	r.HandleFunc("/api/cell/approve", handleCellApprove).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/profile", handleSendProfile).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/profiles", handleFetchProfiles).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/cell/set-profile", handleSetPublicProfile).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/cell/get-profile", handleGetPublicProfile).Methods("GET", "OPTIONS")
+}
+
+// handleSetPublicProfile publishes a cell's public display name (signed) so
+// others see who a cell is when they click it.
+func handleSetPublicProfile(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Pub  string `json:"pub"`
+		Name string `json:"name"`
+		Sig  string `json:"sig"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		authError(w, http.StatusBadRequest, "Invalid request.")
+		return
+	}
+	if getCellRec(body.Pub) == nil {
+		authError(w, http.StatusNotFound, "Unknown cell.")
+		return
+	}
+	if !verifySig(body.Pub, "kando-pubprofile:"+body.Name, body.Sig) {
+		authError(w, http.StatusUnauthorized, "Invalid signature.")
+		return
+	}
+	if err := putProfRec(body.Pub, body.Name, body.Sig); err != nil {
+		authError(w, http.StatusInternalServerError, "Could not store profile: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]interface{}{"status": "ok"})
+}
+
+// handleGetPublicProfile returns a cell's public display name.
+func handleGetPublicProfile(w http.ResponseWriter, req *http.Request) {
+	writeJSON(w, map[string]interface{}{"name": getProfName(req.URL.Query().Get("pubKey"))})
 }
