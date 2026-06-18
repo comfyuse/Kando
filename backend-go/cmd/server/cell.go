@@ -95,6 +95,7 @@ func verifySig(pubB64, msg, sigB64 string) bool {
 
 func approveMessage(target string) string { return "kando-approve:" + target }
 func inviteMessage(q, r int) string       { return "kando-invite:" + cellKey(q, r) }
+func reinviteMessage(q, r int) string     { return "kando-reinvite:" + cellKey(q, r) }
 
 // adjacent reports whether (q2,r2) is one of (q1,r1)'s 6 hex neighbours.
 func adjacent(q1, r1, q2, r2 int) bool {
@@ -219,6 +220,65 @@ func handleCellInvite(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, map[string]interface{}{"publicKey": pub, "privateKey": blob, "q": body.Q, "r": body.R, "status": "reserved"})
 }
 
+// handleCellReinvite regenerates the keypair for a neighbour the caller invited
+// but whose private key was lost. Only the adjacent inviter (proven by
+// signature) may do it, and only while the neighbour is still RESERVED (never
+// activated), so an in-use cell can't be hijacked. Returns a fresh private key.
+func handleCellReinvite(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Inviter string `json:"inviter"`
+		Sig     string `json:"sig"`
+		Q       int    `json:"q"`
+		R       int    `json:"r"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		authError(w, http.StatusBadRequest, "Invalid request.")
+		return
+	}
+	inv := getCellRec(body.Inviter)
+	if inv == nil {
+		authError(w, http.StatusNotFound, "Unknown inviter cell.")
+		return
+	}
+	if !adjacent(inv.Q, inv.R, body.Q, body.R) {
+		authError(w, http.StatusBadRequest, "That coordinate is not your neighbour.")
+		return
+	}
+	if !verifySig(body.Inviter, reinviteMessage(body.Q, body.R), body.Sig) {
+		authError(w, http.StatusUnauthorized, "Invalid signature.")
+		return
+	}
+	cur := coordRecord(body.Q, body.R)
+	if cur == nil {
+		authError(w, http.StatusNotFound, "No neighbour at that coordinate.")
+		return
+	}
+	if stageDHT(cur.Pub, body.Q, body.R) != "reserved" {
+		authError(w, http.StatusConflict, "That neighbour is already active — cannot regenerate.")
+		return
+	}
+	pub, blob, err := genKeyPair()
+	if err != nil {
+		authError(w, http.StatusInternalServerError, "Could not generate keys.")
+		return
+	}
+	priv, err := privFromBlob(blob)
+	if err != nil {
+		authError(w, http.StatusInternalServerError, "Could not generate keys.")
+		return
+	}
+	if err := putCellRec(pub, body.Q, body.R, 0, priv); err != nil {
+		authError(w, http.StatusInternalServerError, "Could not store cell: "+err.Error())
+		return
+	}
+	// Higher seq so this coord claim supersedes the old (lost) one.
+	if err := putCoordRec(body.Q, body.R, pub, cur.Seq+1, priv); err != nil {
+		authError(w, http.StatusInternalServerError, "Could not store coord: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]interface{}{"publicKey": pub, "privateKey": blob, "q": body.Q, "r": body.R, "status": "reserved"})
+}
+
 // handleCellApprove records a neighbour's signed attestation in the DHT.
 func handleCellApprove(w http.ResponseWriter, req *http.Request) {
 	var body struct {
@@ -298,6 +358,7 @@ func registerCellRoutes(r *mux.Router) {
 	r.HandleFunc("/api/cell/mint-queen", handleMintQueen).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/login", handleCellLogin).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/invite", handleCellInvite).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/cell/reinvite", handleCellReinvite).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/approve", handleCellApprove).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/profile", handleSendProfile).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/profiles", handleFetchProfiles).Methods("GET", "OPTIONS")

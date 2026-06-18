@@ -151,6 +151,17 @@ export function getProfile(): Profile | null {
   }
 }
 
+// Invited-neighbour keys: when you invite a neighbour, their one-time private
+// key is remembered on THIS device (keyed by coordinate) so you can re-copy it
+// later if the hand-off dialog was closed before you saved it.
+const INVITED_PREFIX = 'kando_invited_';
+export function storeInvitedKey(q: number, r: number, blob: string) {
+  if (isBrowser()) localStorage.setItem(`${INVITED_PREFIX}${q}_${r}`, blob);
+}
+export function getInvitedKey(q: number, r: number): string | null {
+  return isBrowser() ? localStorage.getItem(`${INVITED_PREFIX}${q}_${r}`) : null;
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 async function readError(res: Response): Promise<string> {
   const d = await res.json().catch(() => ({}));
@@ -188,6 +199,23 @@ export async function inviteNeighbour(
   const inviter = publicKeyFromBlob(blob);
   const sig = await sign(blob, `kando-invite:${q},${r}`);
   const res = await fetch(`${BASE}/api/cell/invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ inviter, q, r, sig }),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return res.json();
+}
+
+/** Regenerate a lost neighbour key (only works while they're still reserved). */
+export async function reinviteNeighbour(
+  blob: string,
+  q: number,
+  r: number,
+): Promise<{ publicKey: string; privateKey: string }> {
+  const inviter = publicKeyFromBlob(blob);
+  const sig = await sign(blob, `kando-reinvite:${q},${r}`);
+  const res = await fetch(`${BASE}/api/cell/reinvite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ inviter, q, r, sig }),

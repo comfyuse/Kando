@@ -26,6 +26,9 @@ import {
   clearCellSession,
   storeProfile,
   getProfile,
+  storeInvitedKey,
+  getInvitedKey,
+  reinviteNeighbour,
 } from '@/lib/cell-client';
 import dynamic from 'next/dynamic';
 import { Network } from '@/lib/simulator';
@@ -49,6 +52,7 @@ export default function CellExperience() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
 
   // restore a stored key session
   useEffect(() => {
@@ -135,8 +139,9 @@ export default function CellExperience() {
     setError(null);
     try {
       const nk = await inviteNeighbour(keyBlob, q, r);
+      storeInvitedKey(q, r, nk.privateKey); // remember it so it can be re-copied
       setNotice(
-        `Neighbour minted at (${q},${r}). Hand them this private key:\n\n${nk.privateKey}`,
+        `Neighbour minted at (${q},${r}). Hand them this private key (also saved on this device — tap the cell to copy again):\n\n${nk.privateKey}`,
       );
       await refresh(keyBlob);
     } catch (e) {
@@ -169,6 +174,22 @@ export default function CellExperience() {
       const res = await approveNeighbour(keyBlob, targetPub);
       setNotice(`Approved. Their status is now: ${res.status} (${res.approvals}/6).`);
       setPending((p) => p.filter((x) => x.from !== targetPub));
+      await refresh(keyBlob);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regenerate = async (q: number, r: number) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const nk = await reinviteNeighbour(keyBlob, q, r);
+      storeInvitedKey(q, r, nk.privateKey);
+      setNeighbourSel(null);
+      setNotice(`New key for the neighbour at (${q},${r}). Hand it to them:\n\n${nk.privateKey}`);
       await refresh(keyBlob);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -211,7 +232,7 @@ export default function CellExperience() {
           onGhostClick={(q, r) => doInvite(q, r)}
           onCellClick={(c) => {
             const nb = cell?.neighbours.find((n) => n.q === c.coord.q && n.r === c.coord.r && n.occupied);
-            if (nb?.pubKey && pending.some((p) => p.from === nb.pubKey)) approve(nb.pubKey);
+            if (nb?.pubKey) setNeighbourSel({ q: nb.q, r: nb.r, pubKey: nb.pubKey });
           }}
         />
       </div>
@@ -256,6 +277,47 @@ export default function CellExperience() {
           {error}
         </p>
       )}
+      {neighbourSel && (() => {
+        const saved = getInvitedKey(neighbourSel.q, neighbourSel.r);
+        const isPending = pending.some((p) => p.from === neighbourSel.pubKey);
+        return (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-5 z-50" onClick={() => setNeighbourSel(null)}>
+            <div className="bg-[#161b22] border border-white/10 rounded-2xl p-5 max-w-md w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-sm font-semibold">
+                Neighbour at ({neighbourSel.q},{neighbourSel.r})
+              </h2>
+              {saved ? (
+                <>
+                  <p className="text-xs text-[var(--text-muted)]">Their private key (saved on this device) — copy and hand it over:</p>
+                  <textarea readOnly value={saved} className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-[11px] font-mono h-24" />
+                  <button onClick={() => navigator.clipboard?.writeText(saved)} className="py-2 rounded-xl bg-[var(--jade)] text-white text-sm font-medium">
+                    Copy key
+                  </button>
+                </>
+              ) : (
+                <p className="text-xs text-[var(--text-muted)]">
+                  No key saved on this device for this neighbour. If it was lost, regenerate a fresh one — only works while they haven&apos;t activated yet.
+                </p>
+              )}
+              {isPending && (
+                <button
+                  onClick={() => { approve(neighbourSel.pubKey); setNeighbourSel(null); }}
+                  disabled={busy}
+                  className="py-2 rounded-xl bg-[var(--jade)]/15 text-[var(--jade)] border border-[var(--jade)]/30 text-sm disabled:opacity-60"
+                >
+                  Verify &amp; approve
+                </button>
+              )}
+              <button onClick={() => regenerate(neighbourSel.q, neighbourSel.r)} disabled={busy} className="py-2 rounded-xl border border-white/10 text-sm text-[var(--text-secondary)] disabled:opacity-60">
+                Regenerate key
+              </button>
+              <button onClick={() => setNeighbourSel(null)} className="text-xs text-[var(--text-muted)]">
+                Close
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       {notice && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-5 z-50" onClick={() => setNotice(null)}>
           <div className="bg-[#161b22] border border-white/10 rounded-2xl p-5 max-w-md w-full" onClick={(e) => e.stopPropagation()}>

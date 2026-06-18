@@ -182,15 +182,21 @@ func getCellRec(pub string) *cellRec {
 	return &r
 }
 func coordOwner(q, r int) string {
+	if rec := coordRecord(q, r); rec != nil {
+		return rec.Pub
+	}
+	return ""
+}
+func coordRecord(q, r int) *coordRec {
 	v, err := p2pNode.GetDHT(coordDHTKey(q, r))
 	if err != nil || v == nil {
-		return ""
+		return nil
 	}
 	var rec coordRec
 	if json.Unmarshal(v, &rec) != nil {
-		return ""
+		return nil
 	}
-	return rec.Pub
+	return &rec
 }
 func hasApprovalDHT(approver, target string) bool {
 	v, err := p2pNode.GetDHT(apprDHTKey(target, approver))
