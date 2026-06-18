@@ -814,7 +814,7 @@ func main() {
 
 	// ── Start libp2p node ─────────────────────────────────────────────────────
 	var err error
-	p2pNode, err = p2p.New(ctx, p2pPort)
+	p2pNode, err = p2p.New(ctx, p2pPort, kandoValidator{}, os.Getenv("DHT_PATH"))
 	if err != nil {
 		log.Fatalf("❌ Failed to start libp2p node: %v", err)
 	}

@@ -12,16 +12,21 @@ package p2p
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
+	leveldb "github.com/ipfs/go-ds-leveldb"
 	libp2p "github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	kbucket "github.com/libp2p/go-libp2p-kbucket"
+	record "github.com/libp2p/go-libp2p-record"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -76,7 +81,7 @@ type Node struct {
 // New starts a libp2p node listening on tcpPort (TCP) and the same port for
 // QUIC-v1. The Kademlia DHT is started in server mode so this node can
 // answer routing queries from other nodes.
-func New(parent context.Context, tcpPort int) (*Node, error) {
+func New(parent context.Context, tcpPort int, validator record.Validator, dataDir string) (*Node, error) {
 	ctx, cancel := context.WithCancel(parent)
 
 	h, err := libp2p.New(
@@ -91,11 +96,33 @@ func New(parent context.Context, tcpPort int) (*Node, error) {
 		return nil, fmt.Errorf("libp2p host: %w", err)
 	}
 
-	// Kademlia DHT — server mode so this node serves routing queries.
-	kd, err := dht.New(ctx, h,
+	// Kademlia DHT — server mode so this node serves routing queries. The
+	// "kando" namespace validator makes cell records first-class signed DHT
+	// values (PutValue/GetValue under /kando/...).
+	dhtOpts := []dht.Option{
 		dht.Mode(dht.ModeServer),
 		dht.BootstrapPeers(), // start with no IPFS bootstrap nodes — use BOOTSTRAP_PEERS env
-	)
+	}
+	if validator != nil {
+		// A private "/kando" DHT (its own protocol prefix) so we can register
+		// just our namespace validator without the /ipfs /pk+/ipns requirement,
+		// and so Kando nodes only ever talk to other Kando nodes.
+		dhtOpts = append(dhtOpts,
+			dht.ProtocolPrefix("/kando"),
+			dht.NamespacedValidator("kando", validator),
+		)
+		// Persist DHT records to disk so a restart doesn't wipe the hive.
+		if dataDir != "" {
+			ds, derr := leveldb.NewDatastore(dataDir, nil)
+			if derr != nil {
+				h.Close()
+				cancel()
+				return nil, fmt.Errorf("dht datastore: %w", derr)
+			}
+			dhtOpts = append(dhtOpts, dht.Datastore(ds))
+		}
+	}
+	kd, err := dht.New(ctx, h, dhtOpts...)
 	if err != nil {
 		h.Close()
 		cancel()
@@ -159,6 +186,39 @@ func New(parent context.Context, tcpPort int) (*Node, error) {
 	})
 
 	return n, nil
+}
+
+// PutDHT stores a signed record under a /kando/... key in the Kademlia DHT.
+// With peers present it replicates to the closest nodes; on a lone node it
+// still stores locally and propagates once peers join.
+func (n *Node) PutDHT(key string, value []byte) error {
+	ctx, cancel := context.WithTimeout(n.ctx, 20*time.Second)
+	defer cancel()
+	err := n.kDHT.PutValue(ctx, key, value)
+	// On a lone node the record is stored locally but PutValue reports it could
+	// not find peers to replicate to. That's fine — it propagates once peers
+	// join — so treat an empty routing table as success.
+	if errors.Is(err, kbucket.ErrLookupFailure) {
+		return nil
+	}
+	return err
+}
+
+// GetDHT fetches a record by its /kando/... key from the DHT (local + network).
+// Returns (nil, nil) when the key is absent rather than an error.
+func (n *Node) GetDHT(key string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(n.ctx, 20*time.Second)
+	defer cancel()
+	v, err := n.kDHT.GetValue(ctx, key)
+	if err == routing.ErrNotFound {
+		return nil, nil
+	}
+	return v, err
+}
+
+// RoutingTableSize reports how many peers this node's DHT routing table holds.
+func (n *Node) RoutingTableSize() int {
+	return n.kDHT.RoutingTable().Size()
 }
 
 func joinAndSubscribe(gs *pubsub.PubSub, topic string) (*pubsub.Topic, *pubsub.Subscription, error) {
