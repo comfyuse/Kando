@@ -261,3 +261,22 @@ export async function fetchProfiles(pubKey: string): Promise<{ from: string; cip
   const d = await res.json();
   return d.envelopes || [];
 }
+
+/** Publish my PUBLIC display name (signed) so others see it when they click my cell. */
+export async function setPublicProfile(blob: string, name: string): Promise<void> {
+  const pub = publicKeyFromBlob(blob);
+  const sig = await sign(blob, `kando-pubprofile:${name}`);
+  await fetch(`${BASE}/api/cell/set-profile`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pub, name, sig }),
+  });
+}
+
+/** Get a cell's public display name (empty string if none). */
+export async function getPublicProfile(pubKey: string): Promise<string> {
+  const res = await fetch(`${BASE}/api/cell/get-profile?pubKey=${encodeURIComponent(pubKey)}`);
+  if (!res.ok) return '';
+  const d = await res.json();
+  return d.name || '';
+}

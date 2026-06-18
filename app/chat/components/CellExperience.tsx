@@ -29,6 +29,8 @@ import {
   storeInvitedKey,
   getInvitedKey,
   reinviteNeighbour,
+  setPublicProfile,
+  getPublicProfile,
 } from '@/lib/cell-client';
 import dynamic from 'next/dynamic';
 import { Network } from '@/lib/simulator';
@@ -53,6 +55,7 @@ export default function CellExperience() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
+  const [selName, setSelName] = useState('');
 
   // restore a stored key session
   useEffect(() => {
@@ -118,6 +121,8 @@ export default function CellExperience() {
         onSave={(p) => {
           storeProfile(p);
           setProfile(p);
+          // also publish a public display name so others see who this cell is
+          if (keyBlob) setPublicProfile(keyBlob, `${p.firstName} ${p.lastName}`.trim()).catch(() => {});
         }}
       />
     );
@@ -240,7 +245,11 @@ export default function CellExperience() {
           onGhostClick={(q, r) => doInvite(q, r)}
           onCellClick={(c) => {
             const nb = cell?.neighbours.find((n) => n.q === c.coord.q && n.r === c.coord.r && n.occupied);
-            if (nb?.pubKey) setNeighbourSel({ q: nb.q, r: nb.r, pubKey: nb.pubKey });
+            if (nb?.pubKey) {
+              setNeighbourSel({ q: nb.q, r: nb.r, pubKey: nb.pubKey });
+              setSelName('');
+              getPublicProfile(nb.pubKey).then(setSelName).catch(() => {});
+            }
           }}
         />
       </div>
@@ -308,7 +317,7 @@ export default function CellExperience() {
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-5 z-50" onClick={() => setNeighbourSel(null)}>
             <div className="bg-[#161b22] border border-white/10 rounded-2xl p-5 max-w-md w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
               <h2 className="text-sm font-semibold">
-                Neighbour at ({neighbourSel.q},{neighbourSel.r})
+                {selName ? `${selName} · ` : ''}Neighbour at ({neighbourSel.q},{neighbourSel.r})
               </h2>
               {saved ? (
                 <>
