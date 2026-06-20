@@ -31,6 +31,9 @@ import {
   reinviteNeighbour,
   setPublicProfile,
   getPublicProfile,
+  ChatMessage,
+  sendMessage,
+  fetchMessages,
 } from '@/lib/cell-client';
 import dynamic from 'next/dynamic';
 import { Network } from '@/lib/simulator';
@@ -56,6 +59,7 @@ export default function CellExperience() {
   const [notice, setNotice] = useState<string | null>(null);
   const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
   const [selName, setSelName] = useState('');
+  const [tab, setTab] = useState<'kando' | 'chat' | 'tasks'>('kando');
 
   // restore a stored key session
   useEffect(() => {
@@ -215,7 +219,9 @@ export default function CellExperience() {
   const approvedCount = (cell?.neighbours || []).filter((n) => n.approved).length;
 
   return (
-    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f] text-[var(--text-primary)]">
+    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 pb-24 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f] text-[var(--text-primary)]">
+      {tab === 'kando' && (
+      <>
       <div className="w-full max-w-md flex items-center justify-between mb-2">
         <div>
           <h1 className="text-xl font-bold">🐝 Your cell</h1>
@@ -304,6 +310,15 @@ export default function CellExperience() {
           Tap an empty hex to invite a neighbour. Your profile never leaves this device unencrypted.
         </p>
       </div>
+      </>
+      )}
+
+      {tab === 'chat' && <ChatView keyBlob={keyBlob} neighbours={cell?.neighbours || []} />}
+      {tab === 'tasks' && (
+        <div className="w-full max-w-md text-center text-sm text-[var(--text-muted)] py-24">
+          Tasks — coming soon
+        </div>
+      )}
 
       {error && (
         <p className="mt-3 text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2 max-w-md">
@@ -361,7 +376,107 @@ export default function CellExperience() {
           </div>
         </div>
       )}
+
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-white/10 bg-[#0d1117]/95 backdrop-blur px-2 py-2">
+        {([['kando', '🐝', 'Kando'], ['chat', '💬', 'Chat'], ['tasks', '✅', 'Tasks']] as const).map(([t, icon, label]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl text-[11px] ${tab === t ? 'text-[var(--jade)]' : 'text-[var(--text-muted)]'}`}
+          >
+            <span className="text-lg">{icon}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
     </main>
+  );
+}
+
+// ── 1-to-1 P2P chat with neighbour cells (end-to-end encrypted) ──────────────
+function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighbour[] }) {
+  const [peer, setPeer] = useState<{ pubKey: string; name: string } | null>(null);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [msgs, setMsgs] = useState<ChatMessage[]>([]);
+  const [text, setText] = useState('');
+
+  const occupied = neighbours.filter((n) => n.occupied && n.pubKey);
+
+  useEffect(() => {
+    occupied.forEach((n) => {
+      if (n.pubKey && names[n.pubKey] === undefined) {
+        getPublicProfile(n.pubKey).then((nm) => setNames((p) => ({ ...p, [n.pubKey!]: nm }))).catch(() => {});
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [neighbours]);
+
+  useEffect(() => {
+    if (!peer) return;
+    let on = true;
+    const load = () => fetchMessages(keyBlob, peer.pubKey).then((m) => { if (on) setMsgs(m); }).catch(() => {});
+    load();
+    const id = setInterval(load, 3000);
+    return () => { on = false; clearInterval(id); };
+  }, [peer, keyBlob]);
+
+  const send = async () => {
+    if (!peer || !text.trim()) return;
+    const t = text.trim();
+    setText('');
+    await sendMessage(keyBlob, peer.pubKey, t);
+    setMsgs(await fetchMessages(keyBlob, peer.pubKey));
+  };
+
+  if (!peer) {
+    return (
+      <div className="w-full max-w-md">
+        <h2 className="text-lg font-bold mb-3">Chats</h2>
+        {occupied.length === 0 && (
+          <p className="text-sm text-[var(--text-muted)]">No neighbours yet — invite some from the Kando tab.</p>
+        )}
+        {occupied.map((n) => (
+          <button
+            key={n.pubKey}
+            onClick={() => setPeer({ pubKey: n.pubKey!, name: names[n.pubKey!] || `Neighbour (${n.q},${n.r})` })}
+            className="w-full flex items-center justify-between py-3 px-3 rounded-xl hover:bg-white/[0.04] border-b border-white/5 text-left"
+          >
+            <span className="text-sm">{names[n.pubKey!] || `Neighbour (${n.q},${n.r})`}</span>
+            <span className="text-xs text-[var(--text-muted)]">›</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-md flex flex-col h-[72vh]">
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={() => setPeer(null)} className="text-sm text-[var(--text-muted)]">‹ Back</button>
+        <span className="text-sm font-semibold">{peer.name}</span>
+      </div>
+      <div className="flex-1 overflow-y-auto flex flex-col gap-2 p-2 rounded-xl border border-white/10">
+        {msgs.length === 0 && <p className="text-xs text-[var(--text-muted)] text-center mt-4">No messages yet — say hi 👋</p>}
+        {msgs.map((m, i) => (
+          <div
+            key={i}
+            className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words ${m.mine ? 'self-end bg-[var(--jade)]/20' : 'self-start bg-white/[0.06]'}`}
+          >
+            {m.text}
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 mt-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+          placeholder="Message…"
+          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-[var(--text-primary)]"
+        />
+        <button onClick={send} className="px-4 rounded-xl bg-[var(--jade)] text-white text-sm font-medium">Send</button>
+      </div>
+    </div>
   );
 }
 

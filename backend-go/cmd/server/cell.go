@@ -43,6 +43,30 @@ type envelopeStore struct {
 
 var envelopes = &envelopeStore{m: make(map[string][]ProfileEnvelope)}
 
+// ChatMsg is one end-to-end-encrypted message between two cells. The backend
+// only relays opaque ciphertext (ECDH+AES-GCM between the two cells' keys).
+type ChatMsg struct {
+	From string    `json:"from"`
+	Ct   string    `json:"ct"`
+	At   time.Time `json:"at"`
+}
+
+type chatStoreT struct {
+	mu sync.Mutex
+	m  map[string][]ChatMsg // conversation key (sorted pubkey hashes) → messages
+}
+
+var chatStore = &chatStoreT{m: make(map[string][]ChatMsg)}
+
+// convKey is the order-independent key for a 1-to-1 conversation.
+func convKey(a, b string) string {
+	ha, hb := pubHash(a), pubHash(b)
+	if ha < hb {
+		return ha + "|" + hb
+	}
+	return hb + "|" + ha
+}
+
 // ── P-256 crypto (interoperable with WebCrypto in the browser) ─────────────────
 
 // genKeyPair mints a P-256 keypair: a base64 uncompressed-point public key (the
@@ -377,6 +401,52 @@ func registerCellRoutes(r *mux.Router) {
 	r.HandleFunc("/api/cell/profiles", handleFetchProfiles).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/cell/set-profile", handleSetPublicProfile).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/cell/get-profile", handleGetPublicProfile).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/cell/message", handleCellMessageSend).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/cell/messages", handleCellMessages).Methods("GET", "OPTIONS")
+}
+
+// handleSendMessage relays an end-to-end-encrypted chat message between two
+// cells. The backend stores only opaque ciphertext.
+func handleCellMessageSend(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+		Ct   string `json:"ct"`
+		Sig  string `json:"sig"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Ct == "" {
+		authError(w, http.StatusBadRequest, "Invalid request.")
+		return
+	}
+	if getCellRec(body.From) == nil {
+		authError(w, http.StatusNotFound, "Unknown sender cell.")
+		return
+	}
+	if !verifySig(body.From, "kando-msg:"+body.To, body.Sig) {
+		authError(w, http.StatusUnauthorized, "Invalid sender signature.")
+		return
+	}
+	key := convKey(body.From, body.To)
+	chatStore.mu.Lock()
+	list := append(chatStore.m[key], ChatMsg{From: body.From, Ct: body.Ct, At: time.Now()})
+	if len(list) > 300 { // keep the last 300 messages per conversation
+		list = list[len(list)-300:]
+	}
+	chatStore.m[key] = list
+	chatStore.mu.Unlock()
+	writeJSON(w, map[string]interface{}{"status": "ok"})
+}
+
+// handleGetMessages returns the 1-to-1 conversation between ?me and ?peer.
+func handleCellMessages(w http.ResponseWriter, req *http.Request) {
+	me := req.URL.Query().Get("me")
+	peer := req.URL.Query().Get("peer")
+	chatStore.mu.Lock()
+	msgs := chatStore.m[convKey(me, peer)]
+	out := make([]ChatMsg, len(msgs))
+	copy(out, msgs)
+	chatStore.mu.Unlock()
+	writeJSON(w, map[string]interface{}{"messages": out})
 }
 
 // handleSetPublicProfile publishes a cell's public display name (signed) so

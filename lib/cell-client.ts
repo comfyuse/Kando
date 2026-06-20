@@ -280,3 +280,59 @@ export async function getPublicProfile(pubKey: string): Promise<string> {
   const d = await res.json();
   return d.name || '';
 }
+
+// ── 1-to-1 end-to-end-encrypted chat ─────────────────────────────────────────
+export interface ChatMessage {
+  from: string;
+  text: string;
+  at: string;
+  mine: boolean;
+}
+
+async function encryptText(blob: string, peerPubB64: string, text: string): Promise<string> {
+  const key = await sharedKey(blob, peerPubB64);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(text)));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv, 0);
+  out.set(ct, 12);
+  return bytesToB64(out);
+}
+async function decryptText(blob: string, peerPubB64: string, ciphertext: string): Promise<string> {
+  const key = await sharedKey(blob, peerPubB64);
+  const data = b64ToBytes(ciphertext);
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: data.slice(0, 12) }, key, data.slice(12));
+  return dec.decode(pt);
+}
+
+/** Send an end-to-end-encrypted message to another cell. */
+export async function sendMessage(blob: string, toPub: string, text: string): Promise<void> {
+  const from = publicKeyFromBlob(blob);
+  const ct = await encryptText(blob, toPub, text);
+  const sig = await sign(blob, `kando-msg:${toPub}`);
+  await fetch(`${BASE}/api/cell/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to: toPub, ct, sig }),
+  });
+}
+
+/** Fetch + decrypt the 1-to-1 conversation with a peer cell. */
+export async function fetchMessages(blob: string, peerPub: string): Promise<ChatMessage[]> {
+  const me = publicKeyFromBlob(blob);
+  const res = await fetch(
+    `${BASE}/api/cell/messages?me=${encodeURIComponent(me)}&peer=${encodeURIComponent(peerPub)}`,
+  );
+  if (!res.ok) return [];
+  const d = await res.json();
+  const raw: { from: string; ct: string; at: string }[] = d.messages || [];
+  const out: ChatMessage[] = [];
+  for (const m of raw) {
+    try {
+      out.push({ from: m.from, text: await decryptText(blob, peerPub, m.ct), at: m.at, mine: m.from === me });
+    } catch {
+      /* skip undecryptable */
+    }
+  }
+  return out;
+}
