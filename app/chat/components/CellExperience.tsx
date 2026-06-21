@@ -51,6 +51,27 @@ const STATUS_COLOR: Record<string, string> = {
   citizen: 'var(--jade)',
 };
 
+// Soft blurred colour orbs that give the transparent page a glassy depth.
+const Orbs = () => (
+  <>
+    <div className="absolute -top-32 -left-24 w-96 h-96 rounded-full bg-[var(--jade)]/10 blur-3xl pointer-events-none -z-10" />
+    <div className="absolute -bottom-40 -right-24 w-[28rem] h-[28rem] rounded-full bg-[#3b82f6]/10 blur-3xl pointer-events-none -z-10" />
+  </>
+);
+
+// A fixed top-left link back to the main site, on every screen.
+const BackToSite = () => (
+  <a
+    href="/"
+    className="fixed top-4 left-4 z-50 flex items-center gap-1.5 px-3 py-2 rounded-xl glass-modern text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+  >
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m15 18-6-6 6-6" />
+    </svg>
+    Back
+  </a>
+);
+
 export default function CellExperience() {
   const [keyBlob, setKeyBlob] = useState<string | null>(null);
   const [cell, setCell] = useState<CellState | null>(null);
@@ -62,6 +83,24 @@ export default function CellExperience() {
   const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
   const [selName, setSelName] = useState('');
   const [tab, setTab] = useState<AppTab>('kando');
+  const [intro, setIntro] = useState(false);
+
+  // show the step-by-step intro once for new visitors
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('kando_intro_seen')) setIntro(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const closeIntro = () => {
+    setIntro(false);
+    try {
+      localStorage.setItem('kando_intro_seen', '1');
+    } catch {
+      /* ignore */
+    }
+  };
 
   // restore a stored key session
   useEffect(() => {
@@ -117,20 +156,28 @@ export default function CellExperience() {
 
   // ── not signed in: entry screen ──────────────────────────────────────────
   if (!keyBlob) {
-    return <EntryScreen onEnterKey={enterWithKey} />;
+    return (
+      <>
+        {intro && <IntroModal onClose={closeIntro} />}
+        <EntryScreen onEnterKey={enterWithKey} />
+      </>
+    );
   }
 
   // ── signed in but no profile yet: first task ─────────────────────────────
   if (!profile) {
     return (
-      <ProfileForm
-        onSave={(p) => {
-          storeProfile(p);
-          setProfile(p);
-          // also publish a public display name so others see who this cell is
-          if (keyBlob) setPublicProfile(keyBlob, `${p.firstName} ${p.lastName}`.trim()).catch(() => {});
-        }}
-      />
+      <>
+        {intro && <IntroModal onClose={closeIntro} />}
+        <ProfileForm
+          onSave={(p) => {
+            storeProfile(p);
+            setProfile(p);
+            // also publish a public display name so others see who this cell is
+            if (keyBlob) setPublicProfile(keyBlob, `${p.firstName} ${p.lastName}`.trim()).catch(() => {});
+          }}
+        />
+      </>
     );
   }
 
@@ -221,7 +268,17 @@ export default function CellExperience() {
   const approvedCount = (cell?.neighbours || []).filter((n) => n.approved).length;
 
   return (
-    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 pb-24 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f] text-[var(--text-primary)]">
+    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 pb-28 relative overflow-hidden text-[var(--text-primary)]">
+      <Orbs />
+      <BackToSite />
+      <button
+        onClick={() => setIntro(true)}
+        aria-label="How to use this page"
+        className="fixed top-4 right-4 z-50 w-9 h-9 rounded-full glass-modern flex items-center justify-center text-sm font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+      >
+        ?
+      </button>
+      {intro && <IntroModal onClose={closeIntro} />}
       {tab === 'kando' && (
       <>
       <div className="w-full max-w-md flex items-center justify-between mb-2">
@@ -552,7 +609,9 @@ function EntryScreen({ onEnterKey }: { onEnterKey: (blob: string) => void }) {
   if (issuerToken) return <IssuerPanel token={issuerToken} onEnterKey={onEnterKey} />;
 
   return (
-    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f]">
+    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 relative overflow-hidden">
+      <Orbs />
+      <BackToSite />
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-2xl mb-3">🐝</div>
@@ -644,7 +703,9 @@ function IssuerPanel({ token, onEnterKey }: { token: string; onEnterKey: (blob: 
   const [busy, setBusy] = useState(false);
 
   return (
-    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f]">
+    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 relative overflow-hidden">
+      <Orbs />
+      <BackToSite />
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold text-center mb-1">Issuer</h1>
         <p className="text-sm text-[var(--text-muted)] text-center mb-6">Mint the queen cell at (0,0)</p>
@@ -678,7 +739,9 @@ function ProfileForm({ onSave }: { onSave: (p: Profile) => void }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   return (
-    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 bg-gradient-to-br from-[#0a0a0f] via-[#0d1117] to-[#0a0a0f]">
+    <main className="min-h-[100dvh] w-full flex items-center justify-center px-5 py-10 relative overflow-hidden">
+      <Orbs />
+      <BackToSite />
       <div className="w-full max-w-sm">
         <h1 className="text-2xl font-bold text-center mb-1">Your profile</h1>
         <p className="text-sm text-[var(--text-muted)] text-center mb-6">Stored only on this device — never sent to any server.</p>
@@ -689,5 +752,52 @@ function ProfileForm({ onSave }: { onSave: (p: Profile) => void }) {
         </div>
       </div>
     </main>
+  );
+}
+
+// ── Step-by-step intro for new visitors ─────────────────────────────────────
+function IntroModal({ onClose }: { onClose: () => void }) {
+  const steps = [
+    { icon: '🐝', title: 'Welcome to Kando', body: 'Every member is a hexagonal cell in a living hive. Your identity is a private key — it never leaves your device.' },
+    { icon: '🔑', title: 'Getting in', body: 'Have a private key? Use the “Private key” tab. Bootstrapping the hive? Open the “Issuer” tab to create an account and mint the queen.' },
+    { icon: '⬡', title: 'Kando tab', body: 'See your cell and its 6 neighbours. Tap a dashed “+” hex to invite a neighbour, then hand them their key.' },
+    { icon: '✅', title: 'Tasks tab', body: 'A step-by-step checklist — invite your neighbours and get verified to grow from reserved → candidate → citizen.' },
+    { icon: '💬', title: 'Chats tab', body: 'Message your neighbours with end-to-end encryption. Only you and they can read it.' },
+    { icon: '👤', title: 'Account tab', body: 'Your identity, status, and public key live here. Use the bottom bar to switch tabs anytime.' },
+  ];
+  const [i, setI] = useState(0);
+  const last = i === steps.length - 1;
+  const s = steps[i];
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-5 z-[60]" onClick={onClose}>
+      <div className="glass-modern rounded-3xl p-7 max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
+        <div className="text-5xl mb-3">{s.icon}</div>
+        <h2 className="text-xl font-bold mb-2 text-[var(--text-primary)]">{s.title}</h2>
+        <p className="text-sm text-[var(--text-muted)] leading-relaxed">{s.body}</p>
+        <div className="flex justify-center gap-1.5 my-5">
+          {steps.map((_, k) => (
+            <span key={k} className={`w-2 h-2 rounded-full transition-colors ${k === i ? 'bg-[var(--jade)]' : 'bg-white/15'}`} />
+          ))}
+        </div>
+        <div className="flex gap-2">
+          {i > 0 && (
+            <button onClick={() => setI(i - 1)} className="flex-1 py-3 rounded-xl border border-white/10 text-sm text-[var(--text-secondary)]">
+              Back
+            </button>
+          )}
+          <button
+            onClick={() => (last ? onClose() : setI(i + 1))}
+            className="flex-1 py-3 rounded-xl bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white font-semibold text-sm"
+          >
+            {last ? 'Got it' : 'Next'}
+          </button>
+        </div>
+        {!last && (
+          <button onClick={onClose} className="mt-3 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+            Skip
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
