@@ -7,7 +7,6 @@
 // approvals (reserved → candidate → citizen).
 
 import { useCallback, useEffect, useState } from 'react';
-import { login as issuerLogin } from '@/lib/auth-client';
 import { joinWaitlist } from '@/lib/auth-client';
 import {
   CellState,
@@ -37,6 +36,9 @@ import {
 } from '@/lib/cell-client';
 import dynamic from 'next/dynamic';
 import { Network } from '@/lib/simulator';
+import AppNav, { AppTab } from './AppNav';
+import AccountView from './AccountView';
+import TasksView from './TasksView';
 
 // The same canvas hex simulator the chat page has always used.
 const Scene2D = dynamic(() => import('@/components/Scene2D'), { ssr: false });
@@ -59,7 +61,7 @@ export default function CellExperience() {
   const [notice, setNotice] = useState<string | null>(null);
   const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
   const [selName, setSelName] = useState('');
-  const [tab, setTab] = useState<'kando' | 'chat' | 'tasks'>('kando');
+  const [tab, setTab] = useState<AppTab>('kando');
 
   // restore a stored key session
   useEffect(() => {
@@ -313,11 +315,41 @@ export default function CellExperience() {
       </>
       )}
 
-      {tab === 'chat' && <ChatView keyBlob={keyBlob} neighbours={cell?.neighbours || []} />}
+      {tab === 'chats' && <ChatView keyBlob={keyBlob} neighbours={cell?.neighbours || []} />}
+
       {tab === 'tasks' && (
-        <div className="w-full max-w-md text-center text-sm text-[var(--text-muted)] py-24">
-          Tasks — coming soon
-        </div>
+        <TasksView
+          isQueen={cell?.q === 0 && cell?.r === 0}
+          neighborsInvited={(cell?.neighbours || []).filter((n) => n.occupied).length}
+          neighborsApproved={approvedCount}
+          friendCount={(cell?.neighbours || []).filter((n) => n.occupied).length}
+          hasCell={!!cell}
+          onGoTo={setTab}
+        />
+      )}
+
+      {tab === 'account' && (
+        <AccountView
+          identity={`${profile.firstName} ${profile.lastName}`.trim()}
+          email={`Cell (${cell?.q ?? '–'},${cell?.r ?? '–'})`}
+          myPeerHash={cell?.publicKey ?? null}
+          isQueen={cell?.q === 0 && cell?.r === 0}
+          backendStatus="online"
+          stats={{
+            alive: (cell?.neighbours || []).filter((n) => n.occupied).length + 1,
+            citizens:
+              (cell?.status === 'citizen' ? 1 : 0) +
+              (cell?.neighbours || []).filter((n) => n.status === 'citizen').length,
+            candidates: (cell?.neighbours || []).filter((n) => n.status === 'candidate').length,
+            reserved: (cell?.neighbours || []).filter((n) => n.occupied && n.status === 'reserved').length,
+            maxRing: 1,
+          }}
+          friendCount={(cell?.neighbours || []).filter((n) => n.occupied).length}
+          onCopyHash={() => {
+            if (cell?.publicKey) navigator.clipboard?.writeText(cell.publicKey);
+          }}
+          onLogout={logout}
+        />
       )}
 
       {error && (
@@ -377,18 +409,7 @@ export default function CellExperience() {
         </div>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 flex justify-around border-t border-white/10 bg-[#0d1117]/95 backdrop-blur px-2 py-2">
-        {([['kando', '🐝', 'Kando'], ['chat', '💬', 'Chat'], ['tasks', '✅', 'Tasks']] as const).map(([t, icon, label]) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex flex-col items-center gap-0.5 px-6 py-1 rounded-xl text-[11px] ${tab === t ? 'text-[var(--jade)]' : 'text-[var(--text-muted)]'}`}
-          >
-            <span className="text-lg">{icon}</span>
-            {label}
-          </button>
-        ))}
-      </nav>
+      <AppNav active={tab} onChange={setTab} badge={{ kando: pending.length }} />
     </main>
   );
 }
@@ -430,51 +451,73 @@ function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighb
 
   if (!peer) {
     return (
-      <div className="w-full max-w-md">
-        <h2 className="text-lg font-bold mb-3">Chats</h2>
+      <div className="max-w-2xl mx-auto w-full">
+        <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-5">Chats</h1>
         {occupied.length === 0 && (
-          <p className="text-sm text-[var(--text-muted)]">No neighbours yet — invite some from the Kando tab.</p>
+          <div className="glass-modern rounded-2xl p-6 text-center text-sm text-[var(--text-muted)]">
+            No neighbours yet — invite some from the Kando tab.
+          </div>
         )}
-        {occupied.map((n) => (
-          <button
-            key={n.pubKey}
-            onClick={() => setPeer({ pubKey: n.pubKey!, name: names[n.pubKey!] || `Neighbour (${n.q},${n.r})` })}
-            className="w-full flex items-center justify-between py-3 px-3 rounded-xl hover:bg-white/[0.04] border-b border-white/5 text-left"
-          >
-            <span className="text-sm">{names[n.pubKey!] || `Neighbour (${n.q},${n.r})`}</span>
-            <span className="text-xs text-[var(--text-muted)]">›</span>
-          </button>
-        ))}
+        <div className="flex flex-col gap-1">
+          {occupied.map((n) => {
+            const nm = names[n.pubKey!] || `Neighbour (${n.q},${n.r})`;
+            return (
+              <button
+                key={n.pubKey}
+                onClick={() => setPeer({ pubKey: n.pubKey!, name: nm })}
+                className="flex items-center gap-3 p-3 rounded-2xl hover:bg-white/[0.04] transition-colors text-left"
+              >
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold text-lg shadow-md shrink-0">
+                  {nm.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-[var(--text-primary)] truncate">{nm}</div>
+                  <div className="text-xs text-[var(--text-muted)] capitalize">
+                    {n.status || 'reserved'} · ({n.q},{n.r})
+                  </div>
+                </div>
+                <span className="text-[var(--text-muted)]">›</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-md flex flex-col h-[72vh]">
-      <div className="flex items-center gap-2 mb-2">
-        <button onClick={() => setPeer(null)} className="text-sm text-[var(--text-muted)]">‹ Back</button>
+    <div className="max-w-2xl mx-auto w-full flex flex-col h-[72vh]">
+      <div className="flex items-center gap-3 mb-3 glass-modern rounded-2xl px-4 py-3">
+        <button onClick={() => setPeer(null)} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]">‹</button>
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold text-sm shrink-0">
+          {peer.name.charAt(0).toUpperCase()}
+        </div>
         <span className="text-sm font-semibold">{peer.name}</span>
       </div>
-      <div className="flex-1 overflow-y-auto flex flex-col gap-2 p-2 rounded-xl border border-white/10">
+      <div className="flex-1 overflow-y-auto flex flex-col gap-2 p-4 glass-modern rounded-2xl">
         {msgs.length === 0 && <p className="text-xs text-[var(--text-muted)] text-center mt-4">No messages yet — say hi 👋</p>}
         {msgs.map((m, i) => (
           <div
             key={i}
-            className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm break-words ${m.mine ? 'self-end bg-[var(--jade)]/20' : 'self-start bg-white/[0.06]'}`}
+            className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm break-words shadow-sm ${
+              m.mine
+                ? 'self-end bg-gradient-to-br from-[var(--jade)]/30 to-[var(--jade)]/15 border border-[var(--jade)]/25'
+                : 'self-start bg-white/[0.06] border border-white/10'
+            }`}
           >
             {m.text}
           </div>
         ))}
       </div>
-      <div className="flex gap-2 mt-2">
+      <div className="flex gap-2 mt-3 glass-modern rounded-2xl p-2">
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder="Message…"
-          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-[var(--text-primary)]"
+          className="flex-1 rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 text-sm text-[var(--text-primary)] focus:border-[var(--jade)] outline-none"
         />
-        <button onClick={send} className="px-4 rounded-xl bg-[var(--jade)] text-white text-sm font-medium">Send</button>
+        <button onClick={send} className="px-5 rounded-xl bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white text-sm font-medium">Send</button>
       </div>
     </div>
   );
@@ -488,6 +531,9 @@ function EntryScreen({ onEnterKey }: { onEnterKey: (blob: string) => void }) {
   const [blob, setBlob] = useState('');
   const [joined, setJoined] = useState(false);
   const [issuerToken, setIssuerToken] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [secA, setSecA] = useState('');
+  const [issuerSignup, setIssuerSignup] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -556,14 +602,31 @@ function EntryScreen({ onEnterKey }: { onEnterKey: (blob: string) => void }) {
 
           {mode === 'issuer' && (
             <>
-              <p className="text-sm text-[var(--text-muted)] text-center">Issuer sign-in</p>
+              <p className="text-sm text-[var(--text-muted)] text-center">
+                {issuerSignup ? 'Create an issuer account' : 'Issuer sign-in'}
+              </p>
+              {issuerSignup && (
+                <input className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-[var(--text-primary)]" placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+              )}
               <input className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-[var(--text-primary)]" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
               <input type="password" className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-[var(--text-primary)]" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              {issuerSignup && (
+                <input className="w-full rounded-xl bg-white/[0.04] border border-white/10 px-4 py-3 text-sm text-[var(--text-primary)]" placeholder="Security answer (for password reset)" value={secA} onChange={(e) => setSecA(e.target.value)} />
+              )}
               <button disabled={busy} onClick={() => run(async () => {
-                await issuerLogin({ email, password });
-                const { getStoredToken } = await import('@/lib/auth-client');
+                const { register, login, getStoredToken } = await import('@/lib/auth-client');
+                if (issuerSignup) {
+                  await register({ name, email, password, securityQuestion: 'What is your security answer?', securityAnswer: secA });
+                } else {
+                  await login({ email, password });
+                }
                 setIssuerToken(getStoredToken());
-              })} className="py-3 rounded-xl bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white font-semibold text-sm disabled:opacity-60">Sign in</button>
+              })} className="py-3 rounded-xl bg-gradient-to-r from-[var(--jade)] to-[var(--jade-hover)] text-white font-semibold text-sm disabled:opacity-60">
+                {issuerSignup ? 'Create account' : 'Sign in'}
+              </button>
+              <button type="button" onClick={() => { setIssuerSignup((s) => !s); setError(null); }} className="text-xs text-[var(--jade)] hover:underline">
+                {issuerSignup ? 'Already have an issuer account? Sign in' : 'No issuer account? Create one'}
+              </button>
             </>
           )}
 
