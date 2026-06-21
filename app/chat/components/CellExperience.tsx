@@ -33,6 +33,9 @@ import {
   ChatMessage,
   sendMessage,
   fetchMessages,
+  resizeImage,
+  storeAvatar,
+  getAvatar,
 } from '@/lib/cell-client';
 import dynamic from 'next/dynamic';
 import { Network } from '@/lib/simulator';
@@ -82,6 +85,7 @@ export default function CellExperience() {
   const [notice, setNotice] = useState<string | null>(null);
   const [neighbourSel, setNeighbourSel] = useState<{ q: number; r: number; pubKey: string } | null>(null);
   const [selName, setSelName] = useState('');
+  const [selAvatar, setSelAvatar] = useState('');
   const [tab, setTab] = useState<AppTab>('kando');
   const [intro, setIntro] = useState(false);
 
@@ -97,6 +101,21 @@ export default function CellExperience() {
     setIntro(false);
     try {
       localStorage.setItem('kando_intro_seen', '1');
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const [avatar, setAvatar] = useState('');
+  useEffect(() => setAvatar(getAvatar()), []);
+  const changeAvatar = async (file: File) => {
+    try {
+      const dataUrl = await resizeImage(file);
+      setAvatar(dataUrl);
+      storeAvatar(dataUrl);
+      if (keyBlob && profile) {
+        await setPublicProfile(keyBlob, `${profile.firstName} ${profile.lastName}`.trim(), dataUrl);
+      }
     } catch {
       /* ignore */
     }
@@ -268,7 +287,7 @@ export default function CellExperience() {
   const approvedCount = (cell?.neighbours || []).filter((n) => n.approved).length;
 
   return (
-    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 pb-28 relative overflow-hidden text-[var(--text-primary)]">
+    <main className="min-h-[100dvh] w-full flex flex-col items-center px-5 py-8 pb-36 relative overflow-hidden text-[var(--text-primary)]">
       <Orbs />
       <BackToSite />
       <button
@@ -313,7 +332,8 @@ export default function CellExperience() {
             if (nb?.pubKey) {
               setNeighbourSel({ q: nb.q, r: nb.r, pubKey: nb.pubKey });
               setSelName('');
-              getPublicProfile(nb.pubKey).then(setSelName).catch(() => {});
+              setSelAvatar('');
+              getPublicProfile(nb.pubKey).then((p) => { setSelName(p.name); setSelAvatar(p.avatar); }).catch(() => {});
             }
           }}
         />
@@ -402,6 +422,8 @@ export default function CellExperience() {
             maxRing: 1,
           }}
           friendCount={(cell?.neighbours || []).filter((n) => n.occupied).length}
+          avatar={avatar}
+          onAvatarChange={changeAvatar}
           onCopyHash={() => {
             if (cell?.publicKey) navigator.clipboard?.writeText(cell.publicKey);
           }}
@@ -418,11 +440,21 @@ export default function CellExperience() {
         const saved = getInvitedKey(neighbourSel.q, neighbourSel.r);
         const isPending = pending.some((p) => p.from === neighbourSel.pubKey);
         return (
-          <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-5 z-50" onClick={() => setNeighbourSel(null)}>
-            <div className="bg-[#161b22] border border-white/10 rounded-2xl p-5 max-w-md w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-              <h2 className="text-sm font-semibold">
-                {selName ? `${selName} · ` : ''}Neighbour at ({neighbourSel.q},{neighbourSel.r})
-              </h2>
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-5 z-50" onClick={() => setNeighbourSel(null)}>
+            <div className="glass-modern rounded-3xl p-5 max-w-md w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-3">
+                {selAvatar ? (
+                  <img src={selAvatar} alt="" className="w-12 h-12 rounded-full object-cover shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold shrink-0">
+                    {(selName || 'N').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <h2 className="text-sm font-semibold">{selName || `Neighbour (${neighbourSel.q},${neighbourSel.r})`}</h2>
+                  <p className="text-xs text-[var(--text-muted)]">Cell ({neighbourSel.q},{neighbourSel.r})</p>
+                </div>
+              </div>
               {saved ? (
                 <>
                   <p className="text-xs text-[var(--text-muted)]">Their private key (saved on this device) — copy and hand it over:</p>
@@ -473,8 +505,9 @@ export default function CellExperience() {
 
 // ── 1-to-1 P2P chat with neighbour cells (end-to-end encrypted) ──────────────
 function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighbour[] }) {
-  const [peer, setPeer] = useState<{ pubKey: string; name: string } | null>(null);
+  const [peer, setPeer] = useState<{ pubKey: string; name: string; avatar: string } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
+  const [avatars, setAvatars] = useState<Record<string, string>>({});
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
 
@@ -483,7 +516,12 @@ function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighb
   useEffect(() => {
     occupied.forEach((n) => {
       if (n.pubKey && names[n.pubKey] === undefined) {
-        getPublicProfile(n.pubKey).then((nm) => setNames((p) => ({ ...p, [n.pubKey!]: nm }))).catch(() => {});
+        getPublicProfile(n.pubKey)
+          .then((pr) => {
+            setNames((p) => ({ ...p, [n.pubKey!]: pr.name }));
+            if (pr.avatar) setAvatars((p) => ({ ...p, [n.pubKey!]: pr.avatar }));
+          })
+          .catch(() => {});
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -518,15 +556,14 @@ function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighb
         <div className="flex flex-col gap-1">
           {occupied.map((n) => {
             const nm = names[n.pubKey!] || `Neighbour (${n.q},${n.r})`;
+            const av = avatars[n.pubKey!];
             return (
               <button
                 key={n.pubKey}
-                onClick={() => setPeer({ pubKey: n.pubKey!, name: nm })}
-                className="flex items-center gap-3 p-3 rounded-2xl hover:bg-white/[0.04] transition-colors text-left"
+                onClick={() => setPeer({ pubKey: n.pubKey!, name: nm, avatar: av || '' })}
+                className="flex items-center gap-3 p-3 rounded-2xl hover:bg-white/[0.05] transition-colors text-left"
               >
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold text-lg shadow-md shrink-0">
-                  {nm.charAt(0).toUpperCase()}
-                </div>
+                <ChatAvatar name={nm} avatar={av} px={48} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-[var(--text-primary)] truncate">{nm}</div>
                   <div className="text-xs text-[var(--text-muted)] capitalize">
@@ -545,24 +582,35 @@ function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighb
   return (
     <div className="max-w-2xl mx-auto w-full flex flex-col h-[72vh]">
       <div className="flex items-center gap-3 mb-3 glass-modern rounded-2xl px-4 py-3">
-        <button onClick={() => setPeer(null)} className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]">‹</button>
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold text-sm shrink-0">
-          {peer.name.charAt(0).toUpperCase()}
+        <button onClick={() => setPeer(null)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-lg leading-none">‹</button>
+        <ChatAvatar name={peer.name} avatar={peer.avatar} px={38} />
+        <div className="min-w-0">
+          <div className="text-sm font-semibold truncate">{peer.name}</div>
+          <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> end-to-end encrypted
+          </div>
         </div>
-        <span className="text-sm font-semibold">{peer.name}</span>
       </div>
-      <div className="flex-1 overflow-y-auto flex flex-col gap-2 p-4 glass-modern rounded-2xl">
-        {msgs.length === 0 && <p className="text-xs text-[var(--text-muted)] text-center mt-4">No messages yet — say hi 👋</p>}
+      <div className="flex-1 overflow-y-auto flex flex-col gap-2.5 p-4 glass-modern rounded-2xl">
+        {msgs.length === 0 && (
+          <div className="m-auto text-center text-[var(--text-muted)]">
+            <div className="text-4xl mb-2">👋</div>
+            <p className="text-sm">No messages yet — say hi to {peer.name}.</p>
+          </div>
+        )}
         {msgs.map((m, i) => (
-          <div
-            key={i}
-            className={`max-w-[75%] px-3.5 py-2 rounded-2xl text-sm break-words shadow-sm ${
-              m.mine
-                ? 'self-end bg-gradient-to-br from-[var(--jade)]/30 to-[var(--jade)]/15 border border-[var(--jade)]/25'
-                : 'self-start bg-white/[0.06] border border-white/10'
-            }`}
-          >
-            {m.text}
+          <div key={i} className={`flex items-end gap-2 ${m.mine ? 'flex-row-reverse' : ''}`}>
+            {!m.mine && <ChatAvatar name={peer.name} avatar={peer.avatar} px={28} />}
+            <div
+              className={`max-w-[72%] px-3.5 py-2 rounded-2xl text-sm break-words shadow-sm ${
+                m.mine
+                  ? 'bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] text-white rounded-br-md'
+                  : 'bg-white/[0.07] border border-white/10 rounded-bl-md'
+              }`}
+            >
+              {m.text}
+              <div className={`text-[10px] mt-0.5 text-right ${m.mine ? 'text-white/70' : 'text-[var(--text-muted)]'}`}>{fmtTime(m.at)}</div>
+            </div>
           </div>
         ))}
       </div>
@@ -578,6 +626,29 @@ function ChatView({ keyBlob, neighbours }: { keyBlob: string; neighbours: Neighb
       </div>
     </div>
   );
+}
+
+// Round avatar — shows the image if present, else a coloured initial.
+function ChatAvatar({ name, avatar, px = 48 }: { name: string; avatar?: string; px?: number }) {
+  if (avatar) {
+    return <img src={avatar} alt="" className="rounded-full object-cover shrink-0" style={{ width: px, height: px }} />;
+  }
+  return (
+    <div
+      className="rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-white font-bold shrink-0"
+      style={{ width: px, height: px, fontSize: px * 0.4 }}
+    >
+      {(name || 'N').charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+function fmtTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
 }
 
 // ── Entry: waitlist · key login · issuer ────────────────────────────────────

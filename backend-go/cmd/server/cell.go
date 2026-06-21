@@ -453,9 +453,10 @@ func handleCellMessages(w http.ResponseWriter, req *http.Request) {
 // others see who a cell is when they click it.
 func handleSetPublicProfile(w http.ResponseWriter, req *http.Request) {
 	var body struct {
-		Pub  string `json:"pub"`
-		Name string `json:"name"`
-		Sig  string `json:"sig"`
+		Pub    string `json:"pub"`
+		Name   string `json:"name"`
+		Avatar string `json:"avatar"`
+		Sig    string `json:"sig"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		authError(w, http.StatusBadRequest, "Invalid request.")
@@ -469,14 +470,19 @@ func handleSetPublicProfile(w http.ResponseWriter, req *http.Request) {
 		authError(w, http.StatusUnauthorized, "Invalid signature.")
 		return
 	}
-	if err := putProfRec(body.Pub, body.Name, body.Sig); err != nil {
+	if err := putProfRec(body.Pub, body.Name, body.Avatar, body.Sig); err != nil {
 		authError(w, http.StatusInternalServerError, "Could not store profile: "+err.Error())
 		return
 	}
 	writeJSON(w, map[string]interface{}{"status": "ok"})
 }
 
-// handleGetPublicProfile returns a cell's public display name.
+// handleGetPublicProfile returns a cell's public display name + avatar.
 func handleGetPublicProfile(w http.ResponseWriter, req *http.Request) {
-	writeJSON(w, map[string]interface{}{"name": getProfName(req.URL.Query().Get("pubKey"))})
+	p := getProf(req.URL.Query().Get("pubKey"))
+	if p == nil {
+		writeJSON(w, map[string]interface{}{"name": "", "avatar": ""})
+		return
+	}
+	writeJSON(w, map[string]interface{}{"name": p.Name, "avatar": p.Avatar})
 }

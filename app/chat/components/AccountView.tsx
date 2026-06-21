@@ -1,5 +1,7 @@
 'use client';
 
+import { useRef } from 'react';
+
 interface NetStats {
   alive: number;
   citizens: number;
@@ -16,6 +18,8 @@ export default function AccountView({
   backendStatus,
   stats,
   friendCount,
+  avatar,
+  onAvatarChange,
   onCopyHash,
   onLogout,
 }: {
@@ -26,10 +30,13 @@ export default function AccountView({
   backendStatus: 'checking' | 'online' | 'offline';
   stats: NetStats;
   friendCount: number;
+  avatar?: string;
+  onAvatarChange?: (file: File) => void;
   onCopyHash: () => void;
   onLogout: () => void;
 }) {
   const name = identity || 'KANDO User';
+  const fileRef = useRef<HTMLInputElement>(null);
   const statusMeta = {
     online: { dot: 'bg-emerald-400', label: 'P2P Active' },
     offline: { dot: 'bg-red-400', label: 'Offline' },
@@ -42,9 +49,40 @@ export default function AccountView({
 
       {/* Profile card */}
       <div className="glass-modern rounded-3xl p-6 md:p-8 flex flex-col items-center text-center">
-        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)] flex items-center justify-center text-4xl font-bold text-white shadow-lg shadow-[var(--jade)]/30">
-          {isQueen ? '👑' : name.charAt(0).toUpperCase()}
-        </div>
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="group relative w-24 h-24 rounded-full shadow-lg shadow-[var(--jade)]/30 overflow-hidden"
+          aria-label="Change profile picture"
+        >
+          {avatar ? (
+            <img src={avatar} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span className="w-full h-full flex items-center justify-center text-4xl font-bold text-white bg-gradient-to-br from-[var(--jade)] to-[var(--jade-hover)]">
+              {isQueen ? '👑' : name.charAt(0).toUpperCase()}
+            </span>
+          )}
+          <span className="absolute inset-0 bg-black/0 group-hover:bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+          </span>
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f && onAvatarChange) onAvatarChange(f);
+            e.target.value = '';
+          }}
+        />
+        <button type="button" onClick={() => fileRef.current?.click()} className="mt-2 text-xs text-[var(--jade)] hover:underline">
+          {avatar ? 'Change photo' : 'Add a photo'}
+        </button>
         <h2 className="mt-4 text-xl font-semibold text-[var(--text-primary)]">{name}</h2>
         <p className="text-sm text-[var(--text-muted)] mt-0.5">{email}</p>
         <div className="mt-1 flex items-center gap-2">

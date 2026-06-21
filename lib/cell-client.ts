@@ -262,23 +262,62 @@ export async function fetchProfiles(pubKey: string): Promise<{ from: string; cip
   return d.envelopes || [];
 }
 
-/** Publish my PUBLIC display name (signed) so others see it when they click my cell. */
-export async function setPublicProfile(blob: string, name: string): Promise<void> {
+export interface PublicProfile {
+  name: string;
+  avatar: string; // small data-URL thumbnail, or ''
+}
+
+/** Publish my PUBLIC display name + avatar (signed) so others see them. */
+export async function setPublicProfile(blob: string, name: string, avatar = ''): Promise<void> {
   const pub = publicKeyFromBlob(blob);
   const sig = await sign(blob, `kando-pubprofile:${name}`);
   await fetch(`${BASE}/api/cell/set-profile`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pub, name, sig }),
+    body: JSON.stringify({ pub, name, avatar, sig }),
   });
 }
 
-/** Get a cell's public display name (empty string if none). */
-export async function getPublicProfile(pubKey: string): Promise<string> {
+/** Get a cell's public display name + avatar. */
+export async function getPublicProfile(pubKey: string): Promise<PublicProfile> {
   const res = await fetch(`${BASE}/api/cell/get-profile?pubKey=${encodeURIComponent(pubKey)}`);
-  if (!res.ok) return '';
+  if (!res.ok) return { name: '', avatar: '' };
   const d = await res.json();
-  return d.name || '';
+  return { name: d.name || '', avatar: d.avatar || '' };
+}
+
+// ── Avatar helpers ───────────────────────────────────────────────────────────
+const AVATAR_KEY = 'kando_avatar';
+
+/** Resize an uploaded image to a small square JPEG data URL (keeps DHT records tiny). */
+export function resizeImage(file: File, size = 96): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('no canvas'));
+      // cover-crop to a square
+      const m = Math.min(img.width, img.height);
+      const sx = (img.width - m) / 2;
+      const sy = (img.height - m) / 2;
+      ctx.drawImage(img, sx, sy, m, m, 0, 0, size, size);
+      resolve(canvas.toDataURL('image/jpeg', 0.6));
+    };
+    img.onerror = () => reject(new Error('bad image'));
+    img.src = url;
+  });
+}
+
+export function storeAvatar(dataUrl: string) {
+  if (isBrowser()) localStorage.setItem(AVATAR_KEY, dataUrl);
+}
+export function getAvatar(): string {
+  return isBrowser() ? localStorage.getItem(AVATAR_KEY) || '' : '';
 }
 
 // ── 1-to-1 end-to-end-encrypted chat ─────────────────────────────────────────

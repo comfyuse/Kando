@@ -93,9 +93,10 @@ type apprRec struct {
 // profRec is a cell's PUBLIC display profile (just a name) — signed by the
 // owner so others can see who a cell belongs to when they click it.
 type profRec struct {
-	Pub  string `json:"pub"`
-	Name string `json:"name"`
-	Sig  string `json:"sig"`
+	Pub    string `json:"pub"`
+	Name   string `json:"name"`
+	Avatar string `json:"avatar,omitempty"` // small data-URL thumbnail (optional)
+	Sig    string `json:"sig"`
 }
 
 func profMsg(name string) string { return "kando-pubprofile:" + name }
@@ -281,8 +282,8 @@ func hasApprovalDHT(approver, target string) bool {
 	v, err := cachedGet(apprDHTKey(target, approver))
 	return err == nil && v != nil
 }
-func putProfRec(pub, name, sig string) error {
-	b, _ := json.Marshal(profRec{Pub: pub, Name: name, Sig: sig})
+func putProfRec(pub, name, avatar, sig string) error {
+	b, _ := json.Marshal(profRec{Pub: pub, Name: name, Avatar: avatar, Sig: sig})
 	key := profDHTKey(pub)
 	if err := p2pNode.PutDHT(key, b); err != nil {
 		return err
@@ -290,16 +291,16 @@ func putProfRec(pub, name, sig string) error {
 	cachePut(key, b)
 	return nil
 }
-func getProfName(pub string) string {
+func getProf(pub string) *profRec {
 	v, err := cachedGet(profDHTKey(pub))
 	if err != nil || v == nil {
-		return ""
+		return nil
 	}
 	var r profRec
 	if json.Unmarshal(v, &r) != nil {
-		return ""
+		return nil
 	}
-	return r.Name
+	return &r
 }
 
 // ── Stage computation over the DHT ──────────────────────────────────────────
